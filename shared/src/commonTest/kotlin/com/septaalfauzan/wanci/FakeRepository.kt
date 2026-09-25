@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.update
 class FakeRepository : ScreenTimeRepository {
     val apps = MutableStateFlow<List<MonitoredApp>>(emptyList())
     val usage = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val recorded = mutableListOf<Triple<String, Long, String>>()
     var syncValues = mutableMapOf<String, String>()
 
     private fun app(packageName: String): MonitoredApp? = apps.value.find { it.packageName == packageName }
@@ -51,6 +52,7 @@ class FakeRepository : ScreenTimeRepository {
         apps.update { list -> list.filterNot { it.packageName == packageName } }
     }
     override suspend fun recordUsage(packageName: String, deltaMinutes: Long, date: String) {
+        recorded += Triple(packageName, deltaMinutes, date)
         usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaMinutes)) }
     }
     override suspend fun reconcileDailyUsage(deltaMinutesByPackage: Map<String, Long>, date: String) {

@@ -59,7 +59,7 @@ class MonitoringCoreTest {
         val core = MonitoringCore(r, today, selfPkg)
 
         core.onForegroundChange("com.instagram.android", 0L)
-        core.onForegroundChange("launcher.pkg", 60 * 60_000L)
+        assertNull(core.onForegroundChange("launcher.pkg", 60 * 60_000L))
 
         assertEquals(0L, r.usage.value["com.instagram.android"] ?: 0L)
     }
@@ -70,7 +70,7 @@ class MonitoringCoreTest {
         val core = MonitoringCore(r, today, selfPkg)
 
         core.onForegroundChange(selfPkg, 0L)
-        core.onForegroundChange("com.instagram.android", 5 * 60_000L)
+        assertNull(core.onForegroundChange("com.instagram.android", 5 * 60_000L))
         core.onForegroundChange("launcher.pkg", 40 * 60_000L)
 
         assertEquals(35L, r.usage.value["com.instagram.android"])
@@ -85,6 +85,6 @@ class MonitoringCoreTest {
         core.onForegroundChange("com.instagram.android", 0L)
         core.onForegroundChange("launcher.pkg", 45_000L)
 
-        assertEquals(0L, r.usage.value["com.instagram.android"] ?: 0L)
+        assertTrue(r.recorded.isEmpty())
     }
 }
