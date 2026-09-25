@@ -49,9 +49,9 @@ class WanciDatabaseTest {
 
             assertEquals(1, appDao.observeAll().first().size)
 
-            usageDao.upsert(DailyUsageEntity("com.instagram.android", "2026-09-25", 42L, 2L))
+            usageDao.insertOrIgnore(DailyUsageEntity("com.instagram.android", "2026-09-25", 42L, 2L))
             assertEquals(42L, usageDao.getUsage("com.instagram.android", "2026-09-25"))
-            usageDao.upsert(DailyUsageEntity("com.instagram.android", "2026-09-25", 45L, 3L))
+            usageDao.addDelta("com.instagram.android", "2026-09-25", 3L, 3L)
             assertEquals(45L, usageDao.getUsage("com.instagram.android", "2026-09-25"))
 
             syncDao.put(SyncStateEntity("lastReconcileEpochMillis", "1700000000000"))

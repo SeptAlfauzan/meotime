@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.septaalfauzan.wanci.data.local.AndroidAppContextHolder
 import com.septaalfauzan.wanci.data.local.TodayKey
 import com.septaalfauzan.wanci.data.repository.ScreenTimeRepositoryImpl
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -18,20 +20,20 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 class ScreenTimeRepositoryImplTest {
 
-    private val today = TodayKey { "2026-09-25" }
+    private val today = MutableTodayKey("2026-09-25")
 
     @Before
     fun setUp() {
         AndroidAppContextHolder.context = ApplicationProvider.getApplicationContext<Context>()
     }
 
-    private suspend fun newRepo() = run {
+    private suspend fun newRepo(todayKey: TodayKey = today) = run {
         val db = buildTestDatabase("repo")
         val repo = ScreenTimeRepositoryImpl(
             monitoredAppDao = db.monitoredAppDao(),
             dailyUsageDao = db.dailyUsageDao(),
             syncStateDao = db.syncStateDao(),
-            todayKey = today,
+            todayKey = todayKey,
         )
         repo to db
     }
@@ -60,16 +62,46 @@ class ScreenTimeRepositoryImplTest {
     }
 
     @Test
+    fun recordUsageAccumulatesDeltas() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.recordUsage("com.instagram.android", 42, "2026-09-25")
+            repo.recordUsage("com.instagram.android", 8, "2026-09-25")
+            assertEquals(50L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
     fun reconcileUsesMaxMerge() = runTest {
         val (repo, db) = newRepo()
         try {
             repo.addMonitoredApp("com.instagram.android", "Instagram", 30)
-            repo.recordUsage("com.instagram.android", 50, "2026-09-25")
-            repo.reconcileDailyUsage(mapOf("com.instagram.android" to 40L), "2026-09-25")
-            assertEquals(50L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
-
+            repo.recordUsage("com.instagram.android", 40, "2026-09-25")
             repo.reconcileDailyUsage(mapOf("com.instagram.android" to 70L), "2026-09-25")
             assertEquals(70L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+
+            repo.reconcileDailyUsage(mapOf("com.instagram.android" to 30L), "2026-09-25")
+            assertEquals(70L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun observeTodayUsageSwitchesDate() = runTest {
+        val todayKey = MutableTodayKey("2026-09-25")
+        val (repo, db) = newRepo(todayKey)
+        try {
+            val packageName = "com.instagram.android"
+            repo.recordUsage(packageName, 24, "2026-09-24")
+            repo.recordUsage(packageName, 42, "2026-09-25")
+
+            val usage = repo.observeTodayUsage(packageName)
+            assertEquals(42L, usage.first())
+            todayKey.date.value = "2026-09-24"
+            assertEquals(24L, usage.first())
         } finally {
             db.closeAndDelete()
         }
@@ -94,4 +126,12 @@ class ScreenTimeRepositoryImplTest {
             db.closeAndDelete()
         }
     }
+}
+
+private class MutableTodayKey(initialDate: String) : TodayKey {
+    val date = MutableStateFlow(initialDate)
+
+    override fun todayIso(): String = date.value
+
+    override fun dateFlow(): Flow<String> = date
 }

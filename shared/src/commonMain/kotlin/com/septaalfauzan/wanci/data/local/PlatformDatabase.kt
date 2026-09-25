@@ -1,6 +1,7 @@
 package com.septaalfauzan.wanci.data.local
 
 import androidx.room.RoomDatabaseConstructor
+import kotlinx.coroutines.flow.Flow
 import kotlin.experimental.ExperimentalNativeApi
 
 @Suppress("KotlinNoActualForExpect")
@@ -13,6 +14,7 @@ expect fun createWanciDatabase(nameOverride: String? = null): WanciDatabase
 
 expect fun createTodayKey(): TodayKey
 
-fun interface TodayKey {
+interface TodayKey {
     fun todayIso(): String
+    fun dateFlow(): Flow<String>
 }

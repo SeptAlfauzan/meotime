@@ -9,10 +9,13 @@ import com.septaalfauzan.wanci.data.local.entity.MonitoredAppEntity
 import com.septaalfauzan.wanci.data.local.entity.SyncStateEntity
 import com.septaalfauzan.wanci.domain.model.MonitoredApp
 import kotlin.time.Clock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ScreenTimeRepositoryImpl(
     private val monitoredAppDao: MonitoredAppDao,
     private val dailyUsageDao: DailyUsageDao,
@@ -22,16 +25,20 @@ class ScreenTimeRepositoryImpl(
 
     override fun observeMonitoredApps(): Flow<List<MonitoredApp>> {
         val apps = monitoredAppDao.observeAll()
-        val usage = dailyUsageDao.observeForDate(todayKey.todayIso())
-        return combine(apps, usage) { appEntities, usageEntities ->
-            val usageByPackage = usageEntities.associateBy { it.packageName }
-            appEntities.map { it.toDomain(usageByPackage[it.packageName]?.usageMinutes ?: 0L) }
+        return todayKey.dateFlow().flatMapLatest { date ->
+            val usage = dailyUsageDao.observeForDate(date)
+            combine(apps, usage) { appEntities, usageEntities ->
+                val usageByPackage = usageEntities.associateBy { it.packageName }
+                appEntities.map { it.toDomain(usageByPackage[it.packageName]?.usageMinutes ?: 0L) }
+            }
         }
     }
 
     override fun observeTodayUsage(packageName: String): Flow<Long> =
-        dailyUsageDao.observeForDate(todayKey.todayIso()).map { usageEntities ->
-            usageEntities.firstOrNull { it.packageName == packageName }?.usageMinutes ?: 0L
+        todayKey.dateFlow().flatMapLatest { date ->
+            dailyUsageDao.observeForDate(date).map { usageEntities ->
+                usageEntities.firstOrNull { it.packageName == packageName }?.usageMinutes ?: 0L
+            }
         }
 
     override suspend fun getMonitoredApp(packageName: String): MonitoredApp? =
@@ -45,22 +52,17 @@ class ScreenTimeRepositoryImpl(
         appName: String,
         dailyLimitMinutes: Int,
     ): Boolean {
-        if (monitoredAppDao.getByPackage(packageName) != null) return false
         val now = Clock.System.now().toEpochMilliseconds()
-        return try {
-            monitoredAppDao.insert(
-                MonitoredAppEntity(
-                    packageName = packageName,
-                    appName = appName,
-                    dailyLimitMinutes = dailyLimitMinutes,
-                    createdAt = now,
-                    updatedAt = now,
-                )
+        val id = monitoredAppDao.insert(
+            MonitoredAppEntity(
+                packageName = packageName,
+                appName = appName,
+                dailyLimitMinutes = dailyLimitMinutes,
+                createdAt = now,
+                updatedAt = now,
             )
-            true
-        } catch (_: Exception) {
-            false
-        }
+        )
+        return id != -1L
     }
 
     override suspend fun updateDailyLimit(packageName: String, dailyLimitMinutes: Int) {
@@ -76,10 +78,10 @@ class ScreenTimeRepositoryImpl(
     }
 
     override suspend fun recordUsage(packageName: String, deltaMinutes: Long, date: String) {
-        val existing = dailyUsageDao.getUsage(packageName, date) ?: 0L
-        dailyUsageDao.upsert(
-            DailyUsageEntity(packageName, date, existing + deltaMinutes, Clock.System.now().toEpochMilliseconds())
-        )
+        val now = Clock.System.now().toEpochMilliseconds()
+        if (dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, deltaMinutes, now)) == -1L) {
+            dailyUsageDao.addDelta(packageName, date, deltaMinutes, now)
+        }
     }
 
     override suspend fun reconcileDailyUsage(
@@ -87,11 +89,9 @@ class ScreenTimeRepositoryImpl(
         date: String,
     ) {
         deltaMinutesByPackage.forEach { (packageName, statsMinutes) ->
-            val existing = dailyUsageDao.getUsage(packageName, date) ?: 0L
-            if (statsMinutes > existing) {
-                dailyUsageDao.upsert(
-                    DailyUsageEntity(packageName, date, statsMinutes, Clock.System.now().toEpochMilliseconds())
-                )
+            val now = Clock.System.now().toEpochMilliseconds()
+            if (dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, statsMinutes, now)) == -1L) {
+                dailyUsageDao.raiseToAtLeast(packageName, date, statsMinutes, now)
             }
         }
     }
