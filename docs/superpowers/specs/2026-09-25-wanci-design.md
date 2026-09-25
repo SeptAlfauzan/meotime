@@ -188,11 +188,11 @@ fun isExceeded(usageMinutes: Long, limitMinutes: Int): Boolean =
 - Requires `SYSTEM_ALERT_WINDOW`. Adds a `WindowManager` overlay window containing a
   `ComposeView` that renders the shared `OverlayScreen`.
 - **Leave app** → fire `ACTION_MAIN` Home intent (launcher), dismiss window.
-- **Manage restriction** → launch Wanci `MainActivity`, dismiss window.
+- **Manage restriction** → launch Wanci `MainActivity` deep-linked to `appsettings/{package}`, dismiss window.
 - No forced hard lock: user always has an escape path (overlay → manage → disable).
 
 Overlay content: "Time's up" + "You've reached your daily limit for {app}." + today's
-usage chord + primary Leave app + secondary Manage restriction.
+usage figure (e.g. "42 / 30 minutes") + primary Leave app + secondary Manage restriction.
 
 ## 9. UI
 
