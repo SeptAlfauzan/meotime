@@ -57,7 +57,7 @@ class MonitoringAccessibilityService : AccessibilityService() {
             val decision = appContainer.coreMutex.withLock {
                 appContainer.core.onForegroundChange(packageName, eventTimeMillis)
             }
-            if (decision != null) {
+            if (decision != null && ready.get()) {
                 appContainer.overlayManager.show(decision)
             }
         }
