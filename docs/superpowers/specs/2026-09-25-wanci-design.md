@@ -261,6 +261,32 @@ Before building UI: a minimal on-device spike proving
 mechanism is unreliable on target devices/versions, the rest of the architecture is
 irrelevant. Plan ordering must start here.
 
+### Spike Gate Result (2026-09-25, PASS)
+
+Verified on Pixel_Fold_API_36 emulator (API 36, debug build, headless):
+
+1. Accessibility `TYPE_WINDOW_STATE_CHANGED` events arrive with external package names
+   (`com.android.settings`, launcher) and uptime timestamps.
+2. Leaving an app after a 69s session accumulates exactly `1` minute into
+   `daily_usage` (`com.android.settings|2026-09-25|1`).
+3. Limit-0 monitored app triggers `OverlayDecision` on leave; full-screen
+   `TYPE_APPLICATION_OVERLAY` Compose window is added and renders.
+4. Overlay dismiss (back/continue) works and re-arms the same-day trigger; a
+   subsequent leave re-shows the overlay.
+5. Screen-off uses the uptime clock consistently with accessibility event times
+   (wall/uptime mismatch fixed during implementation review).
+
+Defect found and fixed during the spike: a `ComposeView` attached outside an
+Activity via `WindowManager` crashes with
+`"Composed into the View which doesn't propagate ViewTreeSavedStateRegistryOwner"`.
+`OverlayManager` now provides a full owner chain (LifecycleOwner +
+SavedStateRegistryOwner via `SavedStateRegistryController.performRestore` +
+ViewModelStoreOwner) before `setContent`.
+
+Harness notes (not product behavior): accessibility must be re-enabled after
+re-install or force-stop; the seed row was inserted via a temporary debug hook,
+since no app-management UI exists until Tasks 7–13.
+
 ## 14. MVP Success Criteria
 
 1. Install Wanci.

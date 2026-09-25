@@ -14,7 +14,14 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.septaalfauzan.wanci.presentation.overlay.OverlayScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -28,14 +35,23 @@ class OverlayManager(
     private val coreMutex: Mutex = Mutex(),
 ) {
 
-    private class OverlayLifecycleOwner : LifecycleOwner {
+    private class OverlayLifecycleOwner :
+        LifecycleOwner,
+        SavedStateRegistryOwner,
+        ViewModelStoreOwner {
         private val registry = LifecycleRegistry(this)
+        private val controller = SavedStateRegistryController.create(this)
+        private val store = ViewModelStore()
 
         init {
+            controller.performRestore(null)
+            registry.currentState = Lifecycle.State.CREATED
             registry.currentState = Lifecycle.State.RESUMED
         }
 
         override val lifecycle: Lifecycle get() = registry
+        override val savedStateRegistry: SavedStateRegistry get() = controller.savedStateRegistry
+        override val viewModelStore: ViewModelStore get() = store
     }
 
     private val lifecycleOwner = OverlayLifecycleOwner()
@@ -76,6 +92,8 @@ class OverlayManager(
                 }
             }
             setViewTreeLifecycleOwner(lifecycleOwner)
+            setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+            setViewTreeViewModelStoreOwner(lifecycleOwner)
             setContent {
                 OverlayScreen(
                     appName = decision.appName,
@@ -88,7 +106,7 @@ class OverlayManager(
         }
         try {
             windowManager.addView(view, params)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             val pkg = decision.packageName
             scope.launch {
                 coreMutex.withLock { core.onOverlayDismissed(pkg) }
