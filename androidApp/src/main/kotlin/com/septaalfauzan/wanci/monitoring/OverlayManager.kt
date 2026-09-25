@@ -89,6 +89,10 @@ class OverlayManager(
         try {
             windowManager.addView(view, params)
         } catch (_: Exception) {
+            val pkg = decision.packageName
+            scope.launch {
+                coreMutex.withLock { core.onOverlayDismissed(pkg) }
+            }
             return
         }
         view.requestFocus()

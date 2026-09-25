@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import com.septaalfauzan.wanci.AppContainer
 import com.septaalfauzan.wanci.WanciApplication
@@ -20,7 +21,7 @@ class MonitoringAccessibilityService : AccessibilityService() {
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != Intent.ACTION_SCREEN_OFF) return
-            enqueueForegroundChange(null, System.currentTimeMillis())
+            enqueueForegroundChange(null, SystemClock.uptimeMillis())
         }
     }
 
@@ -43,8 +44,10 @@ class MonitoringAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         ready.set(false)
-        container = null
         unregisterScreenReceiver()
+        container?.overlayManager?.dismiss()
+        enqueueForegroundChange(null, SystemClock.uptimeMillis())
+        container = null
         super.onDestroy()
     }
 
