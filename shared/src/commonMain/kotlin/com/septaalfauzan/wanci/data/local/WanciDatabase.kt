@@ -1,11 +1,13 @@
 package com.septaalfauzan.wanci.data.local
 
+import androidx.room.ConstructedBy
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.septaalfauzan.wanci.data.local.entity.DailyUsageEntity
 import com.septaalfauzan.wanci.data.local.entity.MonitoredAppEntity
 import com.septaalfauzan.wanci.data.local.entity.SyncStateEntity
 
+@ConstructedBy(WanciDatabaseConstructor::class)
 @Database(
     entities = [
         MonitoredAppEntity::class,

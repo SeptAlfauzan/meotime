@@ -65,9 +65,11 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
-            implementation(libs.robolectric)
-            implementation(libs.androidx.testExt.junit)
         }
+    }
+    kotlin.sourceSets["androidHostTest"].dependencies {
+        implementation(libs.robolectric)
+        implementation(libs.androidx.testExt.junit)
     }
     room {
         schemaDirectory("$projectDir/schemas")
