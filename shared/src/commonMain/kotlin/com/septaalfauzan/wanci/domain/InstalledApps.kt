@@ -11,7 +11,7 @@ data class InstalledApp(
 )
 
 /** Platform seam: Android implements it with `PackageManager`; iOS has no equivalent yet. */
-interface InstalledAppsProvider {
+fun interface InstalledAppsProvider {
     fun getInstalledApps(): List<InstalledApp>
 }
 

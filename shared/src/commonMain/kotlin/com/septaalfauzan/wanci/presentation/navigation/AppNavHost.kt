@@ -14,6 +14,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.savedstate.read
 import com.septaalfauzan.wanci.presentation.LocalDependencies
+import com.septaalfauzan.wanci.presentation.addapp.AddAppScreen
+import com.septaalfauzan.wanci.presentation.addapp.AddAppViewModel
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardScreen
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardViewModel
 import com.septaalfauzan.wanci.presentation.onboarding.OnboardingScreen
@@ -115,7 +117,16 @@ fun AppNavHost(
             )
         }
         composable(Routes.ADD_APP) {
-            // AddAppViewModel + AddAppScreen land in Task 11.
+            val vm: AddAppViewModel = viewModel {
+                AddAppViewModel(
+                    installedAppsProvider = deps.installedAppsProvider,
+                    useCases = deps.useCases,
+                )
+            }
+            AddAppScreen(
+                viewModel = vm,
+                onContinue = { packageName -> navController.navigate(Routes.limit(packageName)) },
+            )
         }
         composable(
             route = Routes.LIMIT,
