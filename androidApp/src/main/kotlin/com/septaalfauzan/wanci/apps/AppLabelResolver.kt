@@ -13,11 +13,20 @@ import com.septaalfauzan.wanci.domain.InstalledAppCheck
  */
 class AppLabelResolver(private val context: Context) {
 
-    fun resolveAppName(packageName: String, fallback: String): String =
-        applicationInfoOrNull(packageName)
-            ?.let { context.packageManager.getApplicationLabel(it).toString() }
-            ?: fallback
-
+    /**
+     * Whether the package still points at something on the device. The only question the
+     * presentation layer asks of this class: the dashboard resolves it per row, and an app's own
+     * settings screen resolves it for that one app, so a monitored row survives an uninstall.
+     *
+     * The single-package *label* lookup this class used to carry is gone. The app-settings screen
+     * titles itself with the label stored on the monitored row, which is the same string
+     * `MonitoringCore` puts in the overlay — so a deep link from that overlay names the app exactly
+     * the way the overlay did, and the settings screen and the dashboard can never disagree about
+     * what an app is called. Reading a live label here instead would give the settings page a third
+     * spelling without correcting the row, and a lookup cannot help an uninstalled app in any case:
+     * that is precisely the case where the platform refuses to answer and only the stored label is
+     * left.
+     */
     fun isInstalled(packageName: String): Boolean = applicationInfoOrNull(packageName) != null
 
     /** Adapts this resolver to the `fun interface` the presentation layer depends on. */

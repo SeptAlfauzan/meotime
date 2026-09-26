@@ -118,18 +118,14 @@ private fun MonitoredAppList(
  * gets an empty bar instead of a live-looking budget: "60 minutes remaining" over a number nothing
  * is updating is the exact claim the label must not make. A limit that was already reached before
  * the app was paused still reads "Limit reached", because that is a real reading and the usage
- * line beside it is still true.
+ * line beside it is still true. The wording itself is [appStatusLabel], shared with the app's own
+ * settings screen so the two can never describe the same row differently.
  */
 @Composable
 private fun MonitoredAppRow(app: MonitoredApp, onClick: () -> Unit) {
     val row = dashboardRow(app)
     val spacing = WanciTokens.spacing
-    val status = when {
-        row.limitReached -> "Limit reached"
-        row.paused -> "Monitoring paused"
-        row.remainingMinutes == 1L -> "1 minute remaining"
-        else -> "${row.remainingMinutes} minutes remaining"
-    }
+    val status = appStatusLabel(row)
 
     Surface(
         onClick = onClick,

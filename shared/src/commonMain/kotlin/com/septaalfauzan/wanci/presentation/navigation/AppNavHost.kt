@@ -16,6 +16,8 @@ import androidx.savedstate.read
 import com.septaalfauzan.wanci.presentation.LocalDependencies
 import com.septaalfauzan.wanci.presentation.addapp.AddAppScreen
 import com.septaalfauzan.wanci.presentation.addapp.AddAppViewModel
+import com.septaalfauzan.wanci.presentation.appsettings.AppSettingsScreen
+import com.septaalfauzan.wanci.presentation.appsettings.AppSettingsViewModel
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardScreen
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardViewModel
 import com.septaalfauzan.wanci.presentation.limit.SetLimitScreen
@@ -115,7 +117,10 @@ fun AppNavHost(
             DashboardScreen(
                 viewModel = vm,
                 onAddApp = { navController.navigate(Routes.ADD_APP) },
-                onOpenApp = { navController.navigate(Routes.appSettings(it)) },
+                // `launchSingleTop` for the same reason as the limit hop below: this hop is
+                // idempotent, and the destination is the one the overlay's deep link also pushes, so
+                // a double tap must not leave two `appsettings/{pkg}` entries stacked.
+                onOpenApp = { navController.navigate(Routes.appSettings(it)) { launchSingleTop = true } },
             )
         }
         composable(Routes.ADD_APP) {
@@ -177,8 +182,45 @@ fun AppNavHost(
             route = Routes.APP_SETTINGS,
             arguments = listOf(navArgument(Routes.ARGUMENT_PACKAGE) { type = NavType.StringType }),
         ) { entry ->
-            // AppSettingsViewModel + AppSettingsScreen land in Task 13; they read the already-decoded
-            // `entry.arguments.getString(Routes.ARGUMENT_PACKAGE)`; do NOT decode again.
+            // The argument is already decoded by the navigation library
+            // (NavDeepLink.getMatchingPathArguments -> NavUriUtils.decode): read it through
+            // SavedState.read, the common-code accessor, and do NOT decode it again. A null here is
+            // a real answer — the destination renders its own "couldn't open this app" state rather
+            // than inventing a package to write to.
+            val requestedPackage = entry.arguments?.read { getStringOrNull(Routes.ARGUMENT_PACKAGE) }
+            val vm: AppSettingsViewModel = viewModel {
+                // The row, today's usage and the installed probe are resolved inside the view model:
+                // a launcher that throws while the destination composes cannot become a retryable
+                // state any other way.
+                AppSettingsViewModel(
+                    requestedPackageName = requestedPackage,
+                    useCases = deps.useCases,
+                    installedAppCheck = deps.installedAppCheck,
+                )
+            }
+            AppSettingsScreen(
+                viewModel = vm,
+                // Leaving pops the destination that sent us here, so the flow stays walkable. The
+                // fallback covers a deep-link cold start, where this destination *is* the start
+                // destination: a pop is a no-op there and the screen's only action would be dead.
+                onBack = {
+                    if (!navController.popBackStack()) navController.landOnDashboard()
+                },
+                // The limit is edited on the set-limit screen, which already owns the stepper, the
+                // presets and the honest update-then-re-read save. `launchSingleTop` because the hop
+                // is idempotent and this screen stays on the stack under it — a double tap would
+                // otherwise leave a second `limit/{pkg}` above it. Backing out of the editor returns
+                // here, where the screen re-reads the row on resume, so the limit shown cannot be
+                // the one the editor abandoned.
+                onChangeLimit = { packageName ->
+                    navController.navigate(Routes.limit(packageName)) { launchSingleTop = true }
+                },
+                // After a confirmed delete this screen has nothing left to say, and the dashboard is
+                // where the absence is visible. Popping to it drops whatever is in between (a deep
+                // link landed straight here, so the fallback navigate covers a stack with no
+                // dashboard on it) and leaves exactly one dashboard entry.
+                onRemoved = { navController.landOnDashboard() },
+            )
         }
     }
 

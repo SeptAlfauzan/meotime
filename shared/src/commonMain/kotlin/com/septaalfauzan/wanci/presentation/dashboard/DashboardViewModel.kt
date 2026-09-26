@@ -77,6 +77,24 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
 }
 
 /**
+ * The words a row's limit state is carried by.
+ *
+ * Extracted from the dashboard row so the two screens that report the same fact cannot drift apart:
+ * a settings screen with its own copy of this mapping is how a list starts saying "3 minutes left"
+ * about an app the app's own page calls "Monitoring paused". Both screens derive it from the same
+ * [dashboardRow], so the wording is one function, and a test pins all four branches.
+ *
+ * "Limit reached" is checked first, and stays the answer for a paused app that had already reached
+ * its limit when it was paused: that is a real reading, and the usage beside it is still true.
+ */
+internal fun appStatusLabel(row: DashboardAppRow): String = when {
+    row.limitReached -> "Limit reached"
+    row.paused -> "Monitoring paused"
+    row.remainingMinutes == 1L -> "1 minute remaining"
+    else -> "${row.remainingMinutes} minutes remaining"
+}
+
+/**
  * The dashboard's state machine: it observes the monitored apps and publishes them with their
  * installed-state resolved.
  *

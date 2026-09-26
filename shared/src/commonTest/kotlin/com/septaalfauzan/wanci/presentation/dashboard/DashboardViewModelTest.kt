@@ -189,6 +189,30 @@ class DashboardViewModelTest {
         assertEquals(0f, row.progress)
     }
 
+    /**
+     * The wording is one function for the two screens that report the same row — the dashboard list
+     * and the app's own settings page — so all four branches are pinned here. A fifth copy of this
+     * mapping in a screen is how the list and the settings page start describing the same app
+     * differently.
+     */
+    @Test
+    fun statusLabelNamesEveryStateARowCanBeIn() = runTest {
+        assertEquals("Limit reached", appStatusLabel(dashboardRow(app(usageMinutes = 60, limitMinutes = 60))))
+        assertEquals(
+            "Monitoring paused",
+            appStatusLabel(dashboardRow(app(usageMinutes = 10, limitMinutes = 60, enabled = false))),
+        )
+        assertEquals("1 minute remaining", appStatusLabel(dashboardRow(app(usageMinutes = 59, limitMinutes = 60))))
+        assertEquals("5 minutes remaining", appStatusLabel(dashboardRow(app(usageMinutes = 55, limitMinutes = 60))))
+        // A limit that cannot be measured reports reached, and a paused app that had already reached
+        // its limit keeps saying so: both are real readings, not stale ones.
+        assertEquals("Limit reached", appStatusLabel(dashboardRow(app(usageMinutes = 0, limitMinutes = 0))))
+        assertEquals(
+            "Limit reached",
+            appStatusLabel(dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false))),
+        )
+    }
+
     @Test
     fun refreshKeepsAPopulatedListOnScreenWhileItReReads() = runTest {
         repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
