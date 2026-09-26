@@ -28,6 +28,7 @@ class MonitoringAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val RECONCILE_INTERVAL_MILLIS = 15 * 60_000L
+        private const val LIMIT_CHECK_INTERVAL_MILLIS = 30 * 1_000L
     }
 
     override fun onServiceConnected() {
@@ -44,6 +45,7 @@ class MonitoringAccessibilityService : AccessibilityService() {
             )
         }
         startReconcileLoop()
+        startLimitCheckLoop()
     }
 
     private fun startReconcileLoop() {
@@ -55,6 +57,22 @@ class MonitoringAccessibilityService : AccessibilityService() {
                     repository = container.repository,
                     todayKey = { container.todayKey.todayIso() },
                 )
+            }
+        }
+    }
+
+    private fun startLimitCheckLoop() {
+        val container = (application as WanciApplication).container
+        container.scope.launch {
+            while (true) {
+                delay(LIMIT_CHECK_INTERVAL_MILLIS)
+                if (!ready.get()) continue
+                val decision = container.coreMutex.withLock {
+                    container.core.checkCurrentPackage()
+                }
+                if (decision != null && ready.get()) {
+                    container.overlayManager.show(decision)
+                }
             }
         }
     }
