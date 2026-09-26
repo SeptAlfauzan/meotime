@@ -54,30 +54,6 @@ class MonitoringCore(
         )
     }
 
-    /** Check whether the current foreground package has exceeded its limit, and emit an
-     *  overlay decision immediately (without waiting for a leave event). */
-    suspend fun checkCurrentPackage(): OverlayDecision? {
-        val pkg = lastPackage ?: return null
-        if (pkg == selfPackageName) return null
-
-        val app = repository.getMonitoredApp(pkg) ?: return null
-        if (!app.enabled) return null
-
-        val date = todayKey.todayIso()
-        val usage = repository.getTodayUsage(pkg, date)
-        if (!LimitChecker.exceeds(usage, app.dailyLimitMinutes)) return null
-
-        val triggered = triggeredByDate.getOrPut(date) { mutableSetOf() }
-        if (pkg in triggered) return null
-        triggered += pkg
-        return OverlayDecision(
-            packageName = pkg,
-            appName = app.appName,
-            usageMinutes = usage,
-            limitMinutes = app.dailyLimitMinutes,
-        )
-    }
-
     fun onOverlayDismissed(packageName: String) {
         val date = todayKey.todayIso()
         triggeredByDate[date]?.remove(packageName)
