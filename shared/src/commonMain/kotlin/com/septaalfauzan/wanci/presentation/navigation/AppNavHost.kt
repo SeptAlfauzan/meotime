@@ -18,6 +18,8 @@ import com.septaalfauzan.wanci.presentation.addapp.AddAppScreen
 import com.septaalfauzan.wanci.presentation.addapp.AddAppViewModel
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardScreen
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardViewModel
+import com.septaalfauzan.wanci.presentation.limit.SetLimitScreen
+import com.septaalfauzan.wanci.presentation.limit.SetLimitViewModel
 import com.septaalfauzan.wanci.presentation.onboarding.OnboardingScreen
 import com.septaalfauzan.wanci.presentation.onboarding.OnboardingViewModel
 import kotlinx.coroutines.flow.catch
@@ -138,8 +140,32 @@ fun AppNavHost(
             route = Routes.LIMIT,
             arguments = listOf(navArgument(Routes.ARGUMENT_PACKAGE) { type = NavType.StringType }),
         ) { entry ->
-            // SetLimitViewModel + SetLimitScreen land in Task 12; they read the already-decoded
-            // `entry.arguments.getString(Routes.ARGUMENT_PACKAGE)`; do NOT decode again.
+            // The argument is already decoded by the navigation library
+            // (NavDeepLink.getMatchingPathArguments -> NavUriUtils.decode): read it through
+            // SavedState.read, the common-code accessor, and do NOT decode it again. A null here is
+            // a real answer — the destination renders its own "couldn't open this app" state rather
+            // than inventing a package to save.
+            val requestedPackage = entry.arguments?.read { getStringOrNull(Routes.ARGUMENT_PACKAGE) }
+            val vm: SetLimitViewModel = viewModel {
+                // The label and the current limit are resolved inside the view model, not here: a
+                // launcher that throws while the destination is being composed cannot become a
+                // retryable state any other way.
+                SetLimitViewModel(
+                    requestedPackageName = requestedPackage,
+                    installedAppsProvider = deps.installedAppsProvider,
+                    useCases = deps.useCases,
+                )
+            }
+            SetLimitScreen(
+                viewModel = vm,
+                onClose = {
+                    // Leaving pops the step that sent us here, so the flow is still walkable. The
+                    // fallback covers a stack with nothing below this destination, where a pop is a
+                    // no-op and the screen's only action would be dead.
+                    if (!navController.popBackStack()) navController.landOnDashboard()
+                },
+                onSaved = { navController.landOnDashboard() },
+            )
         }
         composable(
             route = Routes.APP_SETTINGS,
@@ -164,6 +190,24 @@ fun AppNavHost(
             currentPackage == request.packageName
         if (isSameAppSettings) return@LaunchedEffect
         navController.navigate(Routes.appSettings(request.packageName)) { launchSingleTop = true }
+    }
+}
+
+/**
+ * Lands on the dashboard from anywhere, leaving exactly one dashboard entry behind.
+ *
+ * Popping back to the dashboard *without* clearing it is the whole point: the dashboard -> add-app
+ * -> limit flow has two hop destinations above it, and popping drops both, so the user returns to
+ * the entry that was already on the stack instead of a second copy of it. `launchSingleTop` on the
+ * fallback covers the one stack with no dashboard on it — a deep-link cold start, where
+ * `popBackStack` returns false — and there it replaces the start destination rather than growing
+ * the stack.
+ */
+private fun NavHostController.landOnDashboard() {
+    if (popBackStack(Routes.DASHBOARD, inclusive = false)) return
+    navigate(Routes.DASHBOARD) {
+        popUpTo(graph.startDestinationId) { inclusive = true }
+        launchSingleTop = true
     }
 }
 
