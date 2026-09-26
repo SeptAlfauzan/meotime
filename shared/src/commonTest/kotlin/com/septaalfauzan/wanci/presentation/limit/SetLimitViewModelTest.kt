@@ -65,6 +65,22 @@ private class GatedAddRepository(private val delegate: ScreenTimeRepository) : S
     }
 }
 
+/**
+ * Parks the single-row read on [gate], so the state *before* that read answers can be observed.
+ *
+ * An unconfined dispatcher runs the whole of `init` to completion when nothing suspends, so an
+ * un-gated read makes the loading state unobservable — the skeleton would have to be asserted
+ * against a view model that had already resolved.
+ */
+private class GatedReadRepository(private val delegate: ScreenTimeRepository) : ScreenTimeRepository by delegate {
+    val gate = CompletableDeferred<Unit>()
+
+    override suspend fun getMonitoredApp(packageName: String): MonitoredApp? {
+        gate.await()
+        return delegate.getMonitoredApp(packageName)
+    }
+}
+
 class SetLimitViewModelTest {
 
     private val repository = FakeRepository()
@@ -169,8 +185,10 @@ class SetLimitViewModelTest {
     fun aMissingArgumentIsATerminalStateAndSavesNothing() = runTest {
         var finished = false
 
-        val state = newViewModel(packageName = null).state.value
-        state.also { newViewModel(packageName = null).save { finished = true } }
+        val stateViewModel = newViewModel(packageName = null)
+        val state = stateViewModel.state.value
+        val savingViewModel = newViewModel(packageName = null)
+        savingViewModel.save { finished = true }
 
         assertTrue(state.missingArgument)
         assertFalse(state.loading)
@@ -244,13 +262,30 @@ class SetLimitViewModelTest {
         assertEquals(LABEL, viewModel.state.value.appName)
     }
 
-    /** Silence is not failure: an unanswered read keeps the skeleton up rather than raising an error. */
+    /**
+     * Silence is not failure: an unanswered read keeps the skeleton up rather than raising an error.
+     *
+     * The read is parked on a gate so the state is read *while it is still in flight*. Without the
+     * gate the unconfined dispatcher runs `init` to completion before the first assertion and this
+     * test would assert the resolved state twice while claiming to pin the loading one.
+     */
     @Test
-    fun staysInLoadingUntilTheFirstAnswer() {
-        val viewModel = newViewModel()
+    fun staysInLoadingUntilTheFirstAnswer() = runTest {
+        val gated = GatedReadRepository(repository)
+        val viewModel = newViewModel(repository = gated)
 
-        assertFalse(viewModel.state.value.loading)
-        assertEquals(LABEL, viewModel.state.value.appName)
+        val whileUnanswered = viewModel.state.value
+        assertTrue(whileUnanswered.loading)
+        assertFalse(whileUnanswered.error)
+
+        gated.gate.complete(Unit)
+        advanceUntilIdle()
+
+        val resolved = viewModel.state.value
+        assertFalse(resolved.loading)
+        assertFalse(resolved.error)
+        assertEquals(LABEL, resolved.appName)
+        assertEquals(PACKAGE, resolved.packageName)
     }
 
     @Test
@@ -291,6 +326,44 @@ class SetLimitViewModelTest {
         assertEquals(1, gated.addCalls.size)
         assertEquals(1, finishes)
         assertEquals(1, repository.apps.value.size)
+    }
+
+    /**
+     * The in-flight latch is not lowered on success. Success ends the screen, but navigation is not
+     * instantaneous, and lowering it would open the window between the write and the arrival on the
+     * dashboard for a second write. `saving` therefore stays `true` and `canSave` stays `false` for
+     * the rest of this view model's life, and a later Save is refused rather than attempted.
+     */
+    @Test
+    fun theSuccessLatchStaysRaisedAndRefusesASecondWrite() = runTest {
+        var attempts = 0
+        val counting = object : ScreenTimeRepository by repository {
+            override suspend fun addMonitoredApp(
+                packageName: String,
+                appName: String,
+                dailyLimitMinutes: Int,
+            ): Boolean {
+                attempts++
+                return repository.addMonitoredApp(packageName, appName, dailyLimitMinutes)
+            }
+        }
+        val viewModel = newViewModel(repository = counting)
+        var finishes = 0
+        viewModel.setMinutes(45)
+
+        viewModel.save { finishes++ }
+
+        val afterSuccess = viewModel.state.value
+        assertFalse(afterSuccess.saveFailed)
+        assertTrue(afterSuccess.saving)
+        assertFalse(afterSuccess.canSave)
+
+        viewModel.save { finishes++ }
+
+        assertEquals(1, attempts)
+        assertEquals(1, finishes)
+        assertEquals(1, repository.apps.value.size)
+        assertEquals(45, repository.apps.value.single().dailyLimitMinutes)
     }
 
     /**
@@ -372,6 +445,77 @@ class SetLimitViewModelTest {
         assertFalse(finishes)
         assertFalse(state.saving)
         assertTrue(repository.apps.value.isEmpty())
+    }
+
+    /**
+     * The row was monitored on open and stopped being monitored before the save, so the `UPDATE`
+     * matched no row. That failure must not be a dead end: a live "try again" has to become the
+     * insert the user came here to do, because repeating an `UPDATE` against a missing row can only
+     * ever report the same failure again.
+     */
+    @Test
+    fun aFailedUpdateIsFollowedByARetryThatInsertsTheRowThatWentMissing() = runTest {
+        repository.addMonitoredApp(PACKAGE, LABEL, 120)
+        val viewModel = newViewModel()
+        var finishes = 0
+        viewModel.setMinutes(45)
+        repository.removeMonitoredApp(PACKAGE)
+
+        viewModel.save { finishes++ }
+
+        val afterFailure = viewModel.state.value
+        assertTrue(afterFailure.saveFailed)
+        assertFalse(afterFailure.alreadyMonitored)
+        assertTrue(afterFailure.canSave)
+        assertEquals(0, finishes)
+        assertTrue(repository.apps.value.isEmpty())
+
+        viewModel.save { finishes++ }
+
+        val app = repository.apps.value.single()
+        assertEquals(PACKAGE, app.packageName)
+        assertEquals(LABEL, app.appName)
+        assertEquals(45, app.dailyLimitMinutes)
+        assertEquals(1, finishes)
+    }
+
+    /**
+     * A write that *threw* is a different thing from a write that matched no row: the row is still
+     * there, so the retry has to keep updating it. Clearing the flag on that path would turn the
+     * retry into an insert against an existing row, which the repository refuses — reporting a
+     * conflict the user did not cause, and stranding them on a terminal state.
+     */
+    @Test
+    fun aFailedUpdateWriteKeepsTheRowAndTheRetryStaysAnUpdate() = runTest {
+        repository.addMonitoredApp(PACKAGE, LABEL, 120)
+        var attempts = 0
+        val flaky = object : ScreenTimeRepository by repository {
+            override suspend fun updateDailyLimit(packageName: String, dailyLimitMinutes: Int) {
+                attempts++
+                if (attempts == 1) throw IllegalStateException("disk full")
+                repository.updateDailyLimit(packageName, dailyLimitMinutes)
+            }
+        }
+        val viewModel = newViewModel(repository = flaky)
+        var finishes = 0
+        viewModel.setMinutes(45)
+
+        viewModel.save { finishes++ }
+
+        val afterFailure = viewModel.state.value
+        assertTrue(afterFailure.saveFailed)
+        assertTrue(afterFailure.alreadyMonitored)
+        assertTrue(afterFailure.canSave)
+        assertEquals(0, finishes)
+
+        viewModel.save { finishes++ }
+
+        val state = viewModel.state.value
+        assertFalse(state.saveFailed)
+        assertFalse(state.saveConflict)
+        assertEquals(1, finishes)
+        val app = repository.apps.value.single()
+        assertEquals(45, app.dailyLimitMinutes)
     }
 
     @Test

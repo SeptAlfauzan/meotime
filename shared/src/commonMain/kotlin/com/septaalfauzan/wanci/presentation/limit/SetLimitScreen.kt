@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -54,12 +55,21 @@ import com.septaalfauzan.wanci.presentation.theme.WanciTokens
  * The four non-content states are rendered rather than left blank: a skeleton while the app and its
  * current limit are being read, a retry when that read failed, a message with a way out when the
  * route arrived without a package, and — inside the editor — an explanation for either way a save
- * can fail. Nothing here is a spinner, and every value comes from [WanciTokens].
+ * can fail. Nothing here is a spinner, and every spacing, control, colour and type value comes from
+ * [WanciTokens] and the theme; the only literals are the skeleton's own bar geometry.
+ *
+ * The two ways out are separate callbacks because they promise different destinations. [onClose]
+ * walks *back* one step, which is true to the missing-argument state's "Go back and pick it from
+ * your apps". [onBackToApps] leaves for the *list of apps*, which is where the conflict state says
+ * to go: on the dashboard -> add-app -> limit stack, a single pop lands on add-app, the step that
+ * sent us here, so a button labelled "Back to my apps" would be pointing at a screen that is not
+ * the user's apps.
  */
 @Composable
 fun SetLimitScreen(
     viewModel: SetLimitViewModel,
     onClose: () -> Unit,
+    onBackToApps: () -> Unit,
     onSaved: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -81,7 +91,7 @@ fun SetLimitScreen(
                 onIncrement = viewModel::increment,
                 onDecrement = viewModel::decrement,
                 onSave = { viewModel.save(onSaved) },
-                onClose = onClose,
+                onBackToApps = onBackToApps,
             )
         }
     }
@@ -102,7 +112,7 @@ private fun SetLimitEditor(
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
     onSave: () -> Unit,
-    onClose: () -> Unit,
+    onBackToApps: () -> Unit,
 ) {
     val spacing = WanciTokens.spacing
     val editing = !state.saving
@@ -144,7 +154,10 @@ private fun SetLimitEditor(
             Text(
                 state.minutes.toString(),
                 style = MaterialTheme.typography.displaySmall,
-                modifier = Modifier.semantics { contentDescription = "${state.minutes} minutes per day" },
+                // Restates the value in words, which the line below already announces. Describing
+                // both would read the limit twice; this one is kept for sight, the line is the
+                // single spoken answer.
+                modifier = Modifier.clearAndSetSemantics { },
             )
             Spacer(Modifier.width(spacing.lg))
             WanciOutlinedButton(
@@ -202,11 +215,13 @@ private fun SetLimitEditor(
                 SetLimitNotice(
                     label = "Not saved",
                     message = "${state.appName} was added to your list somewhere else, so Wanci left its " +
-                        "limit alone. Go back to change it from there.",
+                        "limit alone. Go to your apps to change it from there.",
                 )
                 Spacer(Modifier.height(spacing.sm))
                 WanciOutlinedButton(
-                    onClick = onClose,
+                    // Not `onClose`: the label says where this goes, and on the add-app -> limit
+                    // stack one pop up lands on add-app, which is not the user's apps.
+                    onClick = onBackToApps,
                     contentPadding = WanciTokens.controls.textButtonContentPadding,
                 ) {
                     Text("Back to my apps")

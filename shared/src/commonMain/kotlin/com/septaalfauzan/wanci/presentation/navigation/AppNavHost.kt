@@ -164,6 +164,12 @@ fun AppNavHost(
                     // no-op and the screen's only action would be dead.
                     if (!navController.popBackStack()) navController.landOnDashboard()
                 },
+                // The conflict's button says "Back to my apps", so it goes to the apps: the
+                // dashboard is where the row that won the conflict now lives. A pop would land on
+                // addapp — the step that sent us here — so the label would promise a screen the
+                // user does not arrive at. Same destination as a successful save, reached for the
+                // same reason: the limit screen has nothing left to say about that app.
+                onBackToApps = { navController.landOnDashboard() },
                 onSaved = { navController.landOnDashboard() },
             )
         }

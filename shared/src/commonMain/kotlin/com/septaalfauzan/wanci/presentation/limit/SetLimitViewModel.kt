@@ -21,18 +21,18 @@ import kotlinx.coroutines.launch
  * stepper's floor a lie. 24 hours is the ceiling because a daily budget larger than a day is not a
  * budget.
  */
-const val MIN_LIMIT_MINUTES = 1
-const val MAX_LIMIT_MINUTES = 24 * 60
+internal const val MIN_LIMIT_MINUTES = 1
+internal const val MAX_LIMIT_MINUTES = 24 * 60
 
 /** What a new app starts on. Half an hour: long enough to be useful, short enough to notice. */
-const val DEFAULT_LIMIT_MINUTES = 30
+internal const val DEFAULT_LIMIT_MINUTES = 30
 
 /**
  * The shortcut values the screen offers, in minutes. They are a convenience, never a constraint:
  * any value in `1..1440` is reachable through the stepper, and the editor says "Custom limit" for
  * anything that is not one of these rather than pretending a choice was made from a list.
  */
-val LIMIT_PRESETS = listOf(15, 30, 45, 60, 120)
+internal val LIMIT_PRESETS = listOf(15, 30, 45, 60, 120)
 
 /**
  * The set-limit screen's state.
@@ -49,8 +49,10 @@ val LIMIT_PRESETS = listOf(15, 30, 45, 60, 120)
  * for an app the launcher does not list is the package id itself.
  *
  * [alreadyMonitored] is a fact about the *open*, not about the save: the row existed when the
- * screen resolved, so saving changes that row's limit instead of inserting a new one. The screen
- * states this in words before the user presses Save — see [SetLimitViewModel.save].
+ * screen resolved, so saving changes that row's limit instead of inserting a new one. The one
+ * exception is a save that provably changed nothing because the row had gone — that clears the
+ * flag, so the next Save inserts the app instead of updating a row that is not there. The screen
+ * states the situation in words before the user presses Save — see [SetLimitViewModel.save].
  */
 data class SetLimitUiState(
     val packageName: String? = null,
@@ -90,8 +92,22 @@ data class SetLimitUiState(
  */
 internal fun clampLimitMinutes(value: Int): Int = value.coerceIn(MIN_LIMIT_MINUTES, MAX_LIMIT_MINUTES)
 
-/** What a save attempt did. Private to the screen: only the two state flags cross the boundary. */
-private enum class SaveOutcome { WRITTEN, CONFLICT, FAILED }
+/**
+ * What a save attempt did. Private to the screen: only the state flags cross the boundary.
+ *
+ * [FAILED] and [FAILED_ROW_GONE] are the same thing to the user — not saved, Save still available —
+ * and they differ only in what the *next* Save is allowed to try. A write that threw leaves the row
+ * as it was, so the retry updates it again. A write that provably matched no row means the app is
+ * no longer monitored at all, so the retry has to insert it. Keeping them apart is what stops the
+ * update path from becoming a dead end: repeating an `UPDATE` against a row that is gone can never
+ * succeed, and the user would be left pressing a button that reports the same failure for ever.
+ */
+private enum class SaveOutcome {
+    WRITTEN,
+    CONFLICT,
+    FAILED,
+    FAILED_ROW_GONE,
+}
 
 /**
  * The preset [value] matches, or `null` when it is a custom value.
@@ -99,7 +115,7 @@ private enum class SaveOutcome { WRITTEN, CONFLICT, FAILED }
  * A screen that only tinted the selected preset would carry the choice by colour alone; the editor
  * renders this as text instead.
  */
-fun presetFor(value: Int): Int? = LIMIT_PRESETS.firstOrNull { it == clampLimitMinutes(value) }
+internal fun presetFor(value: Int): Int? = LIMIT_PRESETS.firstOrNull { it == clampLimitMinutes(value) }
 
 /**
  * A limit in the words a person would use: hours only when there are whole hours, and never a
@@ -108,7 +124,7 @@ fun presetFor(value: Int): Int? = LIMIT_PRESETS.firstOrNull { it == clampLimitMi
  * [minutes] is clamped rather than trusted, so this can never render a number the state does not
  * hold.
  */
-fun formatLimitMinutes(minutes: Int): String {
+internal fun formatLimitMinutes(minutes: Int): String {
     val total = clampLimitMinutes(minutes)
     val hours = total / 60
     val rest = total % 60
@@ -149,7 +165,14 @@ fun formatLimitMinutes(minutes: Int): String {
  * **The update path verifies itself.** `updateDailyLimit` is an `UPDATE ... WHERE package_name = ?`,
  * so a row deleted between the read and the save writes nothing and still returns normally. The
  * write is therefore re-read before it is reported as done, because a "saved" the dashboard then
- * contradicts is the exact failure this screen exists to prevent.
+ * contradicts is the exact failure this screen exists to prevent. That read also decides what the
+ * retry is: a row that is gone makes the next Save an insert (see [SaveOutcome.FAILED_ROW_GONE]).
+ *
+ * **The update path never writes the label.** `updateDailyLimit` touches the limit alone, so a row
+ * opened here keeps whatever `app_name` it was created with. If the app was renamed after that, the
+ * dashboard and this screen show different labels for the same row until a screen that owns
+ * app-settings (Task 13) can correct it; that divergence is recorded, not fixed here, because
+ * silently rewriting the label would be a write the user was told nothing about.
  *
  * **One write in flight at a time.** [save] is a no-op while a save is running, which is the guard
  * against a double tap inserting the row twice; the latch stays set on success because success ends
@@ -213,6 +236,14 @@ class SetLimitViewModel(
 
                 SaveOutcome.FAILED ->
                     _state.update { it.copy(saving = false, saveFailed = true) }
+
+                SaveOutcome.FAILED_ROW_GONE ->
+                    // The row this screen was opened to change is not there any more, so the fact it
+                    // was monitored is dropped: the next Save is the insert the user came here to
+                    // do. Repeating the UPDATE would match no row and fail identically for ever, so
+                    // a live "try again" button would be a button that cannot work. The failure stays
+                    // on screen rather than being swallowed — the retry is a real second attempt.
+                    _state.update { it.copy(saving = false, saveFailed = true, alreadyMonitored = false) }
             }
         }
     }
@@ -223,14 +254,25 @@ class SetLimitViewModel(
      * The two write shapes are kept apart here because only one of them can be *refused*: the
      * insert returns `false` when the row is already there, which is a conflict, while a throw and
      * an update that matched no row are both ordinary failures the user can retry.
+     *
+     * The update re-reads afterwards, and that read answers two different questions. A row that is
+     * *absent* means the write had nothing to change, and the next save must insert instead
+     * ([SaveOutcome.FAILED_ROW_GONE]). A row that is *present with another limit* means something
+     * else owns that value — this write lost a race it cannot prove it won — so the next save stays
+     * an update of the row that is still there. Reading only the value and calling both "failed"
+     * would be a dead end for the first case and a misleading conflict for the second.
      */
     private suspend fun write(snapshot: SetLimitUiState, packageName: String): SaveOutcome = try {
         if (snapshot.alreadyMonitored) {
             useCases.updateDailyLimit(packageName, snapshot.minutes)
             // The UPDATE matches nothing when the row is gone, and Room reports that the same way
             // as a row it changed, so the answer is read back rather than assumed.
-            val landed = useCases.getMonitoredApp(packageName)?.dailyLimitMinutes == snapshot.minutes
-            if (landed) SaveOutcome.WRITTEN else SaveOutcome.FAILED
+            val after = useCases.getMonitoredApp(packageName)
+            when {
+                after == null -> SaveOutcome.FAILED_ROW_GONE
+                after.dailyLimitMinutes == snapshot.minutes -> SaveOutcome.WRITTEN
+                else -> SaveOutcome.FAILED
+            }
         } else {
             if (useCases.addMonitoredApp(packageName, snapshot.appName, snapshot.minutes)) {
                 SaveOutcome.WRITTEN
