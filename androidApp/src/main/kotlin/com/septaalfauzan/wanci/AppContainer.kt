@@ -10,6 +10,7 @@ import com.septaalfauzan.wanci.domain.PermissionStatusProvider
 import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
 import com.septaalfauzan.wanci.monitoring.MonitoringCore
 import com.septaalfauzan.wanci.monitoring.OverlayManager
+import com.septaalfauzan.wanci.monitoring.UsageStatsReader
 import com.septaalfauzan.wanci.permission.PermissionActions
 import com.septaalfauzan.wanci.permission.PermissionChecks
 import com.septaalfauzan.wanci.presentation.DeepLinkRequest
@@ -32,6 +33,7 @@ class AppContainer(private val context: Context) {
     val core = MonitoringCore(repository, todayKey, context.packageName)
     internal val coreMutex = Mutex()
     val overlayManager = OverlayManager(context, core, scope, coreMutex)
+    val usageStatsReader = UsageStatsReader(context)
 
     /**
      * The whole presentation-layer graph, assembled per call. Cheap by construction: every member

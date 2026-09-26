@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityEvent
 import com.septaalfauzan.wanci.AppContainer
 import com.septaalfauzan.wanci.WanciApplication
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
@@ -25,12 +26,37 @@ class MonitoringAccessibilityService : AccessibilityService() {
         }
     }
 
+    companion object {
+        private const val RECONCILE_INTERVAL_MILLIS = 15 * 60_000L
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         container = (application as? WanciApplication)?.container
         if (container == null) return
+        val appContainer = container!!
         registerScreenReceiver()
         ready.set(true)
+        appContainer.scope.launch {
+            appContainer.usageStatsReader.reconcile(
+                repository = appContainer.repository,
+                todayKey = { appContainer.todayKey.todayIso() },
+            )
+        }
+        startReconcileLoop()
+    }
+
+    private fun startReconcileLoop() {
+        val container = (application as WanciApplication).container
+        container.scope.launch {
+            while (true) {
+                delay(RECONCILE_INTERVAL_MILLIS)
+                container.usageStatsReader.reconcile(
+                    repository = container.repository,
+                    todayKey = { container.todayKey.todayIso() },
+                )
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
