@@ -1,5 +1,14 @@
 package com.septaalfauzan.wanci.domain.model
 
+/**
+ * A monitored app as the dashboard and the settings screen read it.
+ *
+ * [todayUsageMinutes] is minutes for *today* and is filled in by the observed read path, which is
+ * keyed on the current date, so it drops back to 0 by itself at midnight. [installed] is a
+ * read-time fact about the device, not stored state: configuration survives an uninstall (the user
+ * may reinstall the app and keep the limit), so the dashboard probes [com.septaalfauzan.wanci.domain.InstalledAppCheck]
+ * and labels the row instead of dropping it.
+ */
 data class MonitoredApp(
     val id: Long,
     val packageName: String,
@@ -9,4 +18,5 @@ data class MonitoredApp(
     val createdAt: Long,
     val updatedAt: Long,
     val todayUsageMinutes: Long = 0,
+    val installed: Boolean = true,
 )

@@ -4,9 +4,21 @@ import com.septaalfauzan.wanci.data.repository.ScreenTimeRepository
 import com.septaalfauzan.wanci.domain.model.MonitoredApp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
+/**
+ * In-memory stand-in for [com.septaalfauzan.wanci.data.repository.ScreenTimeRepositoryImpl].
+ *
+ * Task 10 widened the two observed read paths so the fake honours the same contract the real
+ * repository does: the monitored-app list already carries *today's* usage joined in (the real
+ * implementation combines the app and `daily_usage` queries), and the usage flow is reactive
+ * rather than a one-shot snapshot. Before that, `observeMonitoredApps` handed out rows whose
+ * `todayUsageMinutes` was always the default `0`, so any test of a usage-reading screen would
+ * have been asserting against a fake that could never produce usage.
+ */
 class FakeRepository : ScreenTimeRepository {
     val apps = MutableStateFlow<List<MonitoredApp>>(emptyList())
     val usage = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -15,8 +27,24 @@ class FakeRepository : ScreenTimeRepository {
 
     private fun app(packageName: String): MonitoredApp? = apps.value.find { it.packageName == packageName }
 
-    override fun observeMonitoredApps(): Flow<List<MonitoredApp>> = apps
-    override fun observeTodayUsage(packageName: String): Flow<Long> = flowOf(usage.value[packageName] ?: 0L)
+    /**
+     * Stands in for midnight: the real repository re-queries `daily_usage` for the new date when
+     * `TodayKey.dateFlow()` emits (asserted in `ScreenTimeRepositoryImplTest`), which surfaces here
+     * as today's usage rows emptying. Callers that need the rollover to reach their own collectors
+     * must already be collecting the observed flows.
+     */
+    fun rollOverToNewDay() {
+        usage.value = emptyMap()
+    }
+
+    override fun observeMonitoredApps(): Flow<List<MonitoredApp>> =
+        combine(apps, usage) { monitored, usageByPackage ->
+            monitored.map { it.copy(todayUsageMinutes = usageByPackage[it.packageName] ?: 0L) }
+        }
+
+    override fun observeTodayUsage(packageName: String): Flow<Long> =
+        usage.map { it[packageName] ?: 0L }
+
     override suspend fun getMonitoredApp(packageName: String): MonitoredApp? = app(packageName)
     override suspend fun getTodayUsage(packageName: String, date: String): Long = usage.value[packageName] ?: 0L
     override suspend fun addMonitoredApp(packageName: String, appName: String, dailyLimitMinutes: Int): Boolean {
