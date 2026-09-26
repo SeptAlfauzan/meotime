@@ -93,4 +93,5 @@ class FakeRepository : ScreenTimeRepository {
     override suspend fun putSyncValue(key: String, value: String) {
         syncValues[key] = value
     }
+    override suspend fun deleteUsageBefore(date: String) {}
 }

@@ -110,6 +110,21 @@ class ScreenTimeRepositoryImplTest {
         }
     }
 
+    @Test
+    fun deleteUsageBeforePrunesOldDays() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.addMonitoredApp("com.instagram.android", "Instagram", 30)
+            repo.recordUsage("com.instagram.android", 10, "2026-09-25")
+            repo.recordUsage("com.instagram.android", 5, "2026-09-24")
+            repo.deleteUsageBefore("2026-09-25")
+            assertEquals(10L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+            assertEquals(null, db.dailyUsageDao().getUsage("com.instagram.android", "2026-09-24"))
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
     /**
      * The dashboard's own read path across midnight. `observeTodayUsageSwitchesDate` covers the
      * per-package flow, which nothing on the dashboard collects; this collects

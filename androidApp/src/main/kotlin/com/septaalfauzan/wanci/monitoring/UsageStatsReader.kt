@@ -44,5 +44,7 @@ class UsageStatsReader(
         val deltas = queryForegroundMinutes(marker, now)
         repository.reconcileDailyUsage(deltas, todayKey())
         repository.putSyncValue("lastReconcileEpochMillis", now.toString())
+        val sevenDaysAgo = java.time.LocalDate.now().minusDays(7).toString()
+        repository.deleteUsageBefore(sevenDaysAgo)
     }
 }

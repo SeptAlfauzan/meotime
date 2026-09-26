@@ -105,6 +105,10 @@ class ScreenTimeRepositoryImpl(
     override fun observeSyncValue(key: String): Flow<String?> =
         syncStateDao.observe(key).map { it?.value }
 
+    override suspend fun deleteUsageBefore(date: String) {
+        dailyUsageDao.deleteBefore(date)
+    }
+
     private fun MonitoredAppEntity.toDomain(todayUsageMinutes: Long) =
         MonitoredApp(
             id = id,

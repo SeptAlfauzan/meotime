@@ -17,4 +17,5 @@ interface ScreenTimeRepository {
     suspend fun getSyncValue(key: String): String?
     suspend fun putSyncValue(key: String, value: String)
     fun observeSyncValue(key: String): Flow<String?>
+    suspend fun deleteUsageBefore(date: String)
 }
