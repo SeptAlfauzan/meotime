@@ -34,9 +34,17 @@ class MainActivity : ComponentActivity() {
     private var deepLink by mutableStateOf<DeepLinkRequest?>(null)
 
     /**
-     * Per-delivery counter feeding [DeepLinkRequest.nonce]. Reset to zero on every process start,
-     * which is enough: a restored activity state is always paired with this same process, so two
-     * consecutive deliveries can never collide.
+     * Per-delivery counter feeding [DeepLinkRequest.nonce], kept strictly above every nonce this
+     * activity instance has already restored or issued.
+     *
+     * A field starts at zero on every new instance, including the one the system creates for a
+     * configuration change: rotation restores [DeepLinkRequest] with the nonce it already had
+     * while the counter restarts at 0, so the next delivery for the same package would reuse that
+     * nonce and produce a structurally equal request. [mutableStateOf] would not invalidate on
+     * an equal value, `LaunchedEffect(deepLink)` would not re-key, and the request would be
+     * dropped — exactly the collision the nonce exists to prevent. [onCreate] therefore advances
+     * this past the restored nonce; a real process restart has no restored nonce to collide with,
+     * so zero is correct there.
      */
     private var deliveredRequests = 0L
 
@@ -49,6 +57,11 @@ class MainActivity : ComponentActivity() {
         // lands on a blank dashboard. Reading the extra is skipped when state was restored, so a
         // rotation cannot deliver the same request twice.
         deepLink = restoredDeepLink(savedInstanceState) ?: consumeDeepLink(intent)
+        // The counter is a plain field, so the instance the system builds for a configuration
+        // change starts at zero while the restored request still carries its old nonce. Resume
+        // above it, otherwise the next delivery for the same package reuses that nonce, the new
+        // request compares equal to the restored one, and the deep link is silently dropped.
+        deliveredRequests = maxOf(deliveredRequests, deepLink?.nonce ?: 0L)
 
         setContent {
             // Keyed on the request so the graph is rebuilt only when a deep link actually
