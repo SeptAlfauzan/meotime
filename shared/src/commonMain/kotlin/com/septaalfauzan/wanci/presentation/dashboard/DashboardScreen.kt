@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.LinearProgressIndicator
@@ -52,10 +51,9 @@ import com.septaalfauzan.wanci.presentation.theme.WanciTokens
  * read is in flight, a retry on failure, and a zero state with a call to action when nothing is
  * monitored — because an empty list and an unanswered question look identical on a blank screen.
  *
- * Every value comes from [WanciTokens]; no dp literal is hard-coded here. The row is a
- * [Surface] with an `onClick`, so it carries a real click target and semantics rather than a
- * click modifier on a `Column`, and it is floored at the token row height to clear the 48dp
- * minimum touch target.
+ * Every value comes from [WanciTokens]. The row is a [Surface] with an `onClick`, so it carries a
+ * real click target and semantics rather than a click modifier on a `Column`, and it is floored at
+ * the token row height to clear the 48dp minimum touch target.
  */
 @Composable
 fun DashboardScreen(
@@ -76,7 +74,7 @@ fun DashboardScreen(
         Spacer(Modifier.height(spacing.md))
 
         when {
-            state.loading -> DashboardSkeleton()
+            state.loading -> DashboardSkeleton(modifier = Modifier.weight(1f))
             state.error -> DashboardError(onRetry = viewModel::refresh)
             state.apps.isEmpty() -> DashboardEmpty(onAddApp = onAddApp)
             else -> MonitoredAppList(
@@ -115,12 +113,23 @@ private fun MonitoredAppList(
 /**
  * One app. The limit state is carried by text, never by the bar alone: a screen reader user and a
  * colour-blind user both get "Limit reached" as words, and the bar is a redundant second channel.
+ *
+ * A paused app ([DashboardAppRow.paused]) is not being measured, so it is labelled as such and
+ * gets an empty bar instead of a live-looking budget: "60 minutes remaining" over a number nothing
+ * is updating is the exact claim the label must not make. A limit that was already reached before
+ * the app was paused still reads "Limit reached", because that is a real reading and the usage
+ * line beside it is still true.
  */
 @Composable
 private fun MonitoredAppRow(app: MonitoredApp, onClick: () -> Unit) {
     val row = dashboardRow(app)
     val spacing = WanciTokens.spacing
-    val status = if (row.limitReached) "Limit reached" else "${row.remainingMinutes} minutes remaining"
+    val status = when {
+        row.limitReached -> "Limit reached"
+        row.paused -> "Monitoring paused"
+        row.remainingMinutes == 1L -> "1 minute remaining"
+        else -> "${row.remainingMinutes} minutes remaining"
+    }
 
     Surface(
         onClick = onClick,
@@ -176,11 +185,11 @@ private fun MonitoredAppRow(app: MonitoredApp, onClick: () -> Unit) {
 
 /**
  * Placeholder rows rather than a spinner: the shape of the incoming list is known, so the screen
- * does not jump when it lands, and the bars are marked busy for assistive tech instead of being
- * read out as content.
+ * does not jump when it lands, and the whole placeholder carries one content description instead of
+ * being read out row by row.
  */
 @Composable
-private fun DashboardSkeleton() {
+private fun DashboardSkeleton(modifier: Modifier = Modifier) {
     val spacing = WanciTokens.spacing
     val transition = rememberInfiniteTransition(label = "dashboard-skeleton")
     val alpha by transition.animateFloat(
@@ -194,7 +203,7 @@ private fun DashboardSkeleton() {
     )
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .semantics { contentDescription = "Loading today's app usage" },
         verticalArrangement = Arrangement.spacedBy(spacing.sm),

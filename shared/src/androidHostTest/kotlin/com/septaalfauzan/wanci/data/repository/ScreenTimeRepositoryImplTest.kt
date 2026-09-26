@@ -5,9 +5,12 @@ import androidx.test.core.app.ApplicationProvider
 import com.septaalfauzan.wanci.data.local.AndroidAppContextHolder
 import com.septaalfauzan.wanci.data.local.TodayKey
 import com.septaalfauzan.wanci.data.repository.ScreenTimeRepositoryImpl
+import com.septaalfauzan.wanci.domain.model.MonitoredApp
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.runner.RunWith
@@ -103,6 +106,36 @@ class ScreenTimeRepositoryImplTest {
             todayKey.date.value = "2026-09-24"
             assertEquals(24L, usage.first())
         } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    /**
+     * The dashboard's own read path across midnight. `observeTodayUsageSwitchesDate` covers the
+     * per-package flow, which nothing on the dashboard collects; this collects
+     * [ScreenTimeRepository.observeMonitoredApps] once and asserts the *second* emission, so the
+     * `dateFlow` seam is exercised with the `combine` and the per-app join still in place.
+     */
+    @Test
+    fun observeMonitoredAppsSwitchesDateOnRollover() = runTest {
+        val todayKey = MutableTodayKey("2026-09-25")
+        val (repo, db) = newRepo(todayKey)
+        val emissions = Channel<List<MonitoredApp>>(Channel.UNLIMITED)
+        val collection = backgroundScope.launch {
+            repo.observeMonitoredApps().collect { emissions.send(it) }
+        }
+        try {
+            val packageName = "com.instagram.android"
+            repo.addMonitoredApp(packageName, "Instagram", 30)
+            repo.recordUsage(packageName, 42, "2026-09-25")
+
+            assertEquals(42L, emissions.receive().first().todayUsageMinutes)
+
+            todayKey.date.value = "2026-09-26"
+
+            assertEquals(0L, emissions.receive().first().todayUsageMinutes)
+        } finally {
+            collection.cancel()
             db.closeAndDelete()
         }
     }

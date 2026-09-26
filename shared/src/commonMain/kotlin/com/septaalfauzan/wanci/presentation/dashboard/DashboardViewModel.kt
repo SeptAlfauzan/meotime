@@ -28,18 +28,26 @@ data class DashboardUiState(
 )
 
 /**
- * A monitored app plus the limit arithmetic the row needs, derived once per emission so the
- * screen never recomputes it and never disagrees with the test suite about it.
+ * A monitored app's limit arithmetic, derived once per emission so the screen never recomputes it
+ * and never disagrees with the test suite about it.
  *
  * [progress] is clamped to `0f..1f` and [remainingMinutes] to `0`, so a row can be rendered from
  * these values alone. `limitReached` is the same comparison the overlay uses
  * ([com.septaalfauzan.wanci.monitoring.LimitChecker]): `usage >= limit`.
+ *
+ * [paused] is a separate axis, not a fourth kind of limit state: an app the user switched off is
+ * not measured at all ([com.septaalfauzan.wanci.monitoring.MonitoringCore] returns before
+ * recording), so its `todayUsageMinutes` is a frozen reading rather than a live one. A paused row
+ * therefore reports an empty bar and no remaining minutes — drawing a live-looking budget for a
+ * number nothing is updating is the bug, not the label. `limitReached` keeps its plain meaning
+ * (`usage >= limit`) so a row that had already reached its limit when it was paused is not
+ * laundered into looking untouched.
  */
 data class DashboardAppRow(
-    val app: MonitoredApp,
     val limitReached: Boolean,
     val remainingMinutes: Long,
     val progress: Float,
+    val paused: Boolean,
 )
 
 /**
@@ -54,12 +62,17 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
     val limit = app.dailyLimitMinutes
     val usage = app.todayUsageMinutes
     val measurable = limit > 0
-    val progress = if (measurable) (usage.toFloat() / limit.toFloat()).coerceIn(0f, 1f) else 1f
+    val paused = !app.enabled
+    val progress = when {
+        paused -> 0f
+        measurable -> (usage.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+        else -> 1f
+    }
     return DashboardAppRow(
-        app = app,
         limitReached = !measurable || usage >= limit.toLong(),
-        remainingMinutes = if (measurable) (limit.toLong() - usage).coerceAtLeast(0L) else 0L,
+        remainingMinutes = if (measurable && !paused) (limit.toLong() - usage).coerceAtLeast(0L) else 0L,
         progress = progress,
+        paused = paused,
     )
 }
 
@@ -76,6 +89,13 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
  * **Failures are states, not crashes.** A failed read publishes [DashboardUiState.error] and
  * cancels the collection, which would otherwise leave the screen stuck on the last good value
  * forever; [refresh] re-subscribes, and is also the retry the error state offers.
+ *
+ * **The installed probe is keyed on the package set.** Resolving `installed` means a
+ * `PackageManager` round trip per row, and a usage emission arrives every recorded minute, so
+ * probing per emission is a per-minute cost for a fact that only changes when apps come and go.
+ * The lookup is therefore cached against the exact set of packages and re-run only when that set
+ * changes; [refresh] drops the cache, so a manual refresh re-probes and a reinstall is picked up
+ * by the next refresh or the next list change rather than never.
  */
 class DashboardViewModel(
     private val useCases: WanciUseCases,
@@ -95,17 +115,37 @@ class DashboardViewModel(
      * Re-reads the monitored apps: the retry behind the error state, and the manual refresh for a
      * dashboard that was left open while the platform changed underneath it. Any previous
      * subscription is cancelled first so the two cannot race to publish.
+     *
+     * A list that is already on screen stays on screen: [DashboardUiState.loading] is only raised
+     * when there is nothing to show, so a refresh over good data does not flash the skeleton, and
+     * the re-subscribed rows are already correct while the fresh query runs. The error flag is
+     * always cleared, which is what makes the retry from the error state work.
      */
     fun refresh() {
-        _state.value = _state.value.copy(loading = true, error = false)
+        val current = _state.value
+        _state.value = current.copy(
+            loading = current.apps.isEmpty(),
+            error = false,
+        )
         observe()
     }
 
     private fun observe() {
         observeJob?.cancel()
+        var probedPackages: Set<String> = emptySet()
+        var installedByPackage: Map<String, Boolean> = emptyMap()
         observeJob = viewModelScope.launch {
             useCases.observeMonitoredApps()
-                .map { apps -> apps.map { it.copy(installed = installedAppCheck.isInstalled(it.packageName)) } }
+                .map { apps ->
+                    val packages = apps.mapTo(mutableSetOf()) { it.packageName }
+                    if (packages != probedPackages) {
+                        probedPackages = packages
+                        installedByPackage = packages.associateWith { installedAppCheck.isInstalled(it) }
+                    }
+                    apps.map { app ->
+                        app.copy(installed = installedByPackage[app.packageName] ?: app.installed)
+                    }
+                }
                 .catch { _state.value = DashboardUiState(loading = false, error = true) }
                 .collect { apps -> _state.value = DashboardUiState(apps = apps, loading = false) }
         }

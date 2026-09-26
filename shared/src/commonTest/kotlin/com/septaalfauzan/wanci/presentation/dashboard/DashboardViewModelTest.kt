@@ -135,7 +135,7 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun usageRowReportsRemainingTimeAndFullProgressBelowTheLimit() {
+    fun usageRowReportsRemainingTimeAndFullProgressBelowTheLimit() = runTest {
         val row = dashboardRow(app(usageMinutes = 20, limitMinutes = 60))
 
         assertFalse(row.limitReached)
@@ -144,7 +144,7 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun usageRowFlagsTheLimitReachedExactlyAtTheLimit() {
+    fun usageRowFlagsTheLimitReachedExactlyAtTheLimit() = runTest {
         val row = dashboardRow(app(usageMinutes = 60, limitMinutes = 60))
 
         assertTrue(row.limitReached)
@@ -153,7 +153,7 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun usageRowClampsProgressAndRemainingWhenOverTheLimit() {
+    fun usageRowClampsProgressAndRemainingWhenOverTheLimit() = runTest {
         val row = dashboardRow(app(usageMinutes = 95, limitMinutes = 60))
 
         assertTrue(row.limitReached)
@@ -162,7 +162,7 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun usageRowSurvivesANonPositiveLimit() {
+    fun usageRowSurvivesANonPositiveLimit() = runTest {
         val row = dashboardRow(app(usageMinutes = 5, limitMinutes = 0))
 
         assertTrue(row.limitReached)
@@ -170,12 +170,55 @@ class DashboardViewModelTest {
         assertEquals(1f, row.progress)
     }
 
-    private fun app(usageMinutes: Long, limitMinutes: Int) = MonitoredApp(
+    @Test
+    fun pausedRowReportsNoBudgetBecauseNothingIsMeasuringIt() = runTest {
+        val row = dashboardRow(app(usageMinutes = 0, limitMinutes = 60, enabled = false))
+
+        assertTrue(row.paused)
+        assertEquals(0f, row.progress)
+        assertEquals(0L, row.remainingMinutes)
+        assertFalse(row.limitReached)
+    }
+
+    @Test
+    fun pausedRowKeepsALimitItHadAlreadyReached() = runTest {
+        val row = dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false))
+
+        assertTrue(row.paused)
+        assertTrue(row.limitReached)
+        assertEquals(0f, row.progress)
+    }
+
+    @Test
+    fun refreshKeepsAPopulatedListOnScreenWhileItReReads() = runTest {
+        repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+        repository.recordUsage("com.instagram.android", 42, "2026-09-25")
+        val viewModel = newViewModel()
+
+        viewModel.refresh()
+
+        val state = viewModel.state.value
+        assertFalse(state.loading)
+        assertFalse(state.error)
+        assertEquals(1, state.apps.size)
+        assertEquals(42L, state.apps.first().todayUsageMinutes)
+    }
+
+    @Test
+    fun refreshRaisesLoadingOnlyWhenThereIsNothingToShow() = runTest {
+        val viewModel = newViewModel(SilentRepository(repository))
+
+        viewModel.refresh()
+
+        assertTrue(viewModel.state.value.loading)
+    }
+
+    private fun app(usageMinutes: Long, limitMinutes: Int, enabled: Boolean = true) = MonitoredApp(
         id = 1,
         packageName = "com.instagram.android",
         appName = "Instagram",
         dailyLimitMinutes = limitMinutes,
-        enabled = true,
+        enabled = enabled,
         createdAt = 0,
         updatedAt = 0,
         todayUsageMinutes = usageMinutes,
