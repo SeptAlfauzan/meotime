@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -92,7 +93,11 @@ fun AddAppScreen(
         when {
             state.loading -> AddAppSkeleton(modifier = Modifier.weight(1f))
             state.error -> AddAppError(onRetry = viewModel::retry, modifier = Modifier.weight(1f))
-            state.apps.isEmpty() -> AddAppEmpty(query = state.query, modifier = Modifier.weight(1f))
+            state.apps.isEmpty() -> AddAppEmpty(
+                query = state.query,
+                hasPlatformApps = state.hasPlatformApps,
+                modifier = Modifier.weight(1f),
+            )
             else -> AddAppList(
                 apps = state.apps,
                 selected = state.selected,
@@ -104,7 +109,7 @@ fun AddAppScreen(
         Spacer(Modifier.height(spacing.md))
         WanciButton(
             onClick = { viewModel.confirm(onContinue) },
-            enabled = state.selected != null,
+            enabled = state.canConfirm,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Continue")
@@ -120,7 +125,12 @@ private fun AddAppList(
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = modifier.fillMaxWidth(),
+        // `selectableGroup` is what makes the rows announce as one radio group rather than as N
+        // unrelated options: without it a screen reader reaches each row with no way to know that
+        // choosing it deselects the others.
+        modifier = modifier
+            .fillMaxWidth()
+            .selectableGroup(),
         verticalArrangement = Arrangement.spacedBy(WanciTokens.spacing.xs),
     ) {
         items(apps, key = { it.packageName }) { app ->
@@ -180,7 +190,9 @@ private fun AddAppRow(
 /**
  * Placeholder rows rather than a spinner: the list is the screen's main content, so its shape is
  * known and the screen does not jump when the answer lands. The whole placeholder carries one
- * content description instead of being announced row by row.
+ * content description instead of being announced row by row, and `mergeDescendants` is what makes
+ * that stick — a `contentDescription` on the container alone would leave the eight decorative bars
+ * in the tree as unlabelled nodes, which is what a screen reader would then offer the user.
  */
 @Composable
 private fun AddAppSkeleton(modifier: Modifier = Modifier) {
@@ -199,7 +211,7 @@ private fun AddAppSkeleton(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .semantics { contentDescription = "Loading installed apps" },
+            .semantics(mergeDescendants = true) { contentDescription = "Loading installed apps" },
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         repeat(4) {
@@ -231,12 +243,21 @@ private fun SkeletonBar(widthFraction: Float, height: Dp) {
 }
 
 /**
- * Two different zeroes, told apart by [query]: a search that matched nothing is the user's own
- * filter and is answered by clearing it, while "nothing left to add" means the monitored set already
- * covers every installed app and there is no action to offer.
+ * Three different zeroes, told apart by [query] and [hasPlatformApps]: a search that matched
+ * nothing is the user's own filter and is answered by clearing it, a device with no monitorable app
+ * is a platform fact with nothing to retry, and "nothing left to add" means the monitored set
+ * already covers every installed app.
+ *
+ * The first two are separated because collapsing them would tell a user with no launchable apps that
+ * "every app on this device is already monitored" — a claim about their monitoring, and one that
+ * makes an unfixable state look like something they can undo by deleting a limit.
  */
 @Composable
-private fun AddAppEmpty(query: String, modifier: Modifier = Modifier) {
+private fun AddAppEmpty(
+    query: String,
+    hasPlatformApps: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val spacing = WanciTokens.spacing
     val searching = query.isNotBlank()
 
@@ -246,22 +267,36 @@ private fun AddAppEmpty(query: String, modifier: Modifier = Modifier) {
             .padding(top = spacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (searching) {
-            Text("No apps match \"$query\"", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(spacing.xs))
-            Text(
-                "Check the spelling, or clear the search to see every app you can monitor.",
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-            )
-        } else {
-            Text("Nothing left to add", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(spacing.xs))
-            Text(
-                "Every app on this device is already monitored.",
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-            )
+        when {
+            searching -> {
+                Text("No apps match \"$query\"", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(spacing.xs))
+                Text(
+                    "Check the spelling, or clear the search to see every app you can monitor.",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            !hasPlatformApps -> {
+                Text("No apps to monitor", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(spacing.xs))
+                Text(
+                    "Wanci couldn't find any apps on this device to count. Install one, then try again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            else -> {
+                Text("Nothing left to add", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(spacing.xs))
+                Text(
+                    "Every app on this device is already monitored.",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -278,7 +313,10 @@ private fun AddAppError(onRetry: () -> Unit, modifier: Modifier = Modifier) {
         Text("Couldn't load your apps", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(spacing.xs))
         Text(
-            "Your limits are safe. Try reading them again.",
+            // Says what actually failed: the read that breaks here is the monitored-apps set, not the
+            // limits. Reassuring the user about a read nobody made is the kind of copy that makes
+            // an error look like a design.
+            "Wanci couldn't read which apps are already monitored. Try again.",
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
         )

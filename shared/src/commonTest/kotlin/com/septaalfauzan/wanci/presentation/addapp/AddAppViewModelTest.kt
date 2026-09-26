@@ -171,19 +171,53 @@ class AddAppViewModelTest {
     }
 
     /**
-     * An app monitored from anywhere else stops being offered while it is still the selection, so a
-     * confirmation can never be sent for a package the repository is about to reject as duplicate.
+     * An app monitored from anywhere else stops being offered while it is still the selection, and
+     * the selection stops being confirmable with it: the row is gone and the repository's insert
+     * would be rejected, so an enabled action would promise a step that silently does nothing.
      */
     @Test
-    fun monitoringAnAppElsewhereRemovesItFromTheListWithoutClearingTheSelection() = runTest {
+    fun monitoringAnAppElsewhereRemovesItFromTheListAndDisablesConfirm() = runTest {
         val viewModel = newViewModel()
         viewModel.select("com.google.android.youtube")
+        assertTrue(viewModel.state.value.canConfirm)
 
         repository.addMonitoredApp("com.google.android.youtube", "YouTube", 30)
 
         val state = viewModel.state.value
         assertEquals(listOf("com.instagram.android", "com.example.tiktok"), state.apps.map { it.packageName })
         assertEquals("com.google.android.youtube", state.selected)
+        assertFalse(state.canConfirm)
+    }
+
+    /**
+     * The search filter is the user's own doing, not a change in what is offerable, so it must not
+     * disable the action: a selection the query hides stays confirmable, or clearing the search
+     * would be the only way to finish.
+     */
+    @Test
+    fun filteringTheSelectedAppOutKeepsConfirmAvailable() = runTest {
+        val viewModel = newViewModel()
+        viewModel.select("com.example.tiktok")
+
+        viewModel.updateQuery("instagram")
+
+        val state = viewModel.state.value
+        assertEquals(listOf("com.instagram.android"), state.apps.map { it.packageName })
+        assertEquals("com.example.tiktok", state.selected)
+        assertTrue(state.canConfirm)
+    }
+
+    /** A selection the repository would reject as a duplicate is never handed to the limit step. */
+    @Test
+    fun confirmGoesNowhereForASelectionThatBecameMonitoredElsewhere() = runTest {
+        val viewModel = newViewModel()
+        viewModel.select("com.example.tiktok")
+        repository.addMonitoredApp("com.example.tiktok", "TikTok", 30)
+        var navigated = false
+
+        viewModel.confirm { navigated = true }
+
+        assertFalse(navigated)
     }
 
     /** Every eligible app is gone: a real zero state, not a failed read and not a blank screen. */
@@ -198,6 +232,9 @@ class AddAppViewModelTest {
         assertTrue(state.apps.isEmpty())
         assertFalse(state.loading)
         assertFalse(state.error)
+        // Distinguishes "nothing left to add" from "this device offers nothing": both are an empty
+        // list, and the empty state must not blame the user's monitoring for the second one.
+        assertTrue(state.hasPlatformApps)
     }
 
     @Test
@@ -207,6 +244,7 @@ class AddAppViewModelTest {
         assertTrue(state.apps.isEmpty())
         assertFalse(state.loading)
         assertFalse(state.error)
+        assertFalse(state.hasPlatformApps)
     }
 
     /** Silence is not failure: an unanswered read must keep the skeleton up, not raise an error. */
@@ -237,7 +275,32 @@ class AddAppViewModelTest {
         assertEquals(listOf("com.google.android.youtube", "com.example.tiktok"), state.apps.map { it.packageName })
     }
 
-    /** A read that answers late is not an error and must not need a retry to be seen. */
+    /**
+     * The error state replaces the data rather than sitting on top of it, as the dashboard's does:
+     * the screen renders the error *instead of* the list, so a retained list is state nothing draws
+     * and every other reader of this state would take it for the current answer.
+     */
+    @Test
+    fun aFailureAfterAGoodAnswerDropsTheListInsteadOfKeepingItUnderTheError() {
+        val flaky = FlakyRepository(repository)
+        flaky.failing.value = false
+        val viewModel = newViewModel(flaky)
+        viewModel.select("com.example.tiktok")
+        assertEquals(3, viewModel.state.value.apps.size)
+
+        flaky.failing.value = true
+
+        val state = viewModel.state.value
+        assertTrue(state.error)
+        assertFalse(state.loading)
+        assertTrue(state.apps.isEmpty())
+        assertNull(state.selected)
+        assertFalse(state.canConfirm)
+    }
+
+    /**
+     * A read that answers late is not an error and must not need a retry to be seen.
+     */
     @Test
     fun aReadThatAnswersLateFillsTheListWithoutARetry() = runTest {
         val gated = GatedRepository(repository)

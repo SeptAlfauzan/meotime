@@ -125,7 +125,13 @@ fun AppNavHost(
             }
             AddAppScreen(
                 viewModel = vm,
-                onContinue = { packageName -> navController.navigate(Routes.limit(packageName)) },
+                onContinue = { packageName ->
+                    // `launchSingleTop`: the hop is idempotent, so a double-tapped Continue must not
+                    // stack a second `limit/com.foo` destination. Without it the user presses Back
+                    // and lands on the step they just came from, with the limit screen still queued
+                    // behind it.
+                    navController.navigate(Routes.limit(packageName)) { launchSingleTop = true }
+                },
             )
         }
         composable(
