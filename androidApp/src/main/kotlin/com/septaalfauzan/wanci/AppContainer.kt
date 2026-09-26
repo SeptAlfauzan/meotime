@@ -18,6 +18,7 @@ import com.septaalfauzan.wanci.presentation.WanciAppDependencies
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 class AppContainer(private val context: Context) {
@@ -30,10 +31,18 @@ class AppContainer(private val context: Context) {
         syncStateDao = database.syncStateDao(),
         todayKey = todayKey,
     )
-    val core = MonitoringCore(repository, todayKey, context.packageName)
-    internal val coreMutex = Mutex()
-    val overlayManager = OverlayManager(context, core, scope, coreMutex)
+    val core = MonitoringCore(repository, todayKey, context.packageName, scope) { decision ->
+        scope.launch { overlayManager.show(decision) }
+    }
+    val coreMutex = Mutex()
+    @Suppress("UnnecessaryLateinit")
+    internal lateinit var overlayManager: OverlayManager
+        private set
     val usageStatsReader = UsageStatsReader(context)
+
+    init {
+        overlayManager = OverlayManager(context, core, scope, coreMutex)
+    }
 
     /**
      * The whole presentation-layer graph, assembled per call. Cheap by construction: every member

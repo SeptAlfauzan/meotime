@@ -2,13 +2,13 @@ package com.septaalfauzan.wanci
 
 import com.septaalfauzan.wanci.data.local.TodayKey
 import com.septaalfauzan.wanci.monitoring.MonitoringCore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlin.test.assertTrue
 
 class FakeTodayKey(private val date: String) : TodayKey {
@@ -30,7 +30,7 @@ class MonitoringCoreTest {
     @Test
     fun accumulatesUsageAndTriggersOverlayAtLimit() = runTest {
         val r = repo()
-        val core = MonitoringCore(r, today, selfPkg)
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
 
         assertNull(core.onForegroundChange("com.instagram.android", 0L))
         val leaveInstagram = core.onForegroundChange("com.google.android.youtube", 35 * 60_000L)
@@ -56,7 +56,7 @@ class MonitoringCoreTest {
     fun disabledMonitoringNeverIntervenes() = runTest {
         val r = repo()
         r.setMonitoringEnabled("com.instagram.android", false)
-        val core = MonitoringCore(r, today, selfPkg)
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
 
         core.onForegroundChange("com.instagram.android", 0L)
         assertNull(core.onForegroundChange("launcher.pkg", 60 * 60_000L))
@@ -67,7 +67,7 @@ class MonitoringCoreTest {
     @Test
     fun selfPackageIsNeverCountedOrIntervened() = runTest {
         val r = repo()
-        val core = MonitoringCore(r, today, selfPkg)
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
 
         core.onForegroundChange(selfPkg, 0L)
         assertNull(core.onForegroundChange("com.instagram.android", 5 * 60_000L))
@@ -80,11 +80,68 @@ class MonitoringCoreTest {
     @Test
     fun usageDeltasUnderOneMinuteAreDropped() = runTest {
         val r = repo()
-        val core = MonitoringCore(r, today, selfPkg)
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
 
         core.onForegroundChange("com.instagram.android", 0L)
         core.onForegroundChange("launcher.pkg", 45_000L)
 
         assertTrue(r.recorded.isEmpty())
+    }
+
+    @Test
+    fun checkCurrentAppReturnsOverlayWhenExceeded() = runTest {
+        val r = repo()
+        r.recordUsage("com.instagram.android", 30L, "2026-09-25")
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
+
+        val result = core.checkCurrentApp("com.instagram.android")
+        assertNotNull(result)
+        assertEquals("com.instagram.android", result.packageName)
+    }
+
+    @Test
+    fun checkCurrentAppReturnsNullWhenUnderLimit() = runTest {
+        val r = repo()
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
+
+        val result = core.checkCurrentApp("com.instagram.android")
+        assertNull(result)
+    }
+
+    @Test
+    fun timerShowsOverlayImmediatelyWhenAlreadyExceeded() = runTest {
+        val decisions = mutableListOf<MonitoringCore.OverlayDecision>()
+        val r = repo()
+        r.recordUsage("com.instagram.android", 30L, "2026-09-25")
+        val core = MonitoringCore(r, today, selfPkg, this) { decision ->
+            decisions.add(decision)
+        }
+
+        core.startUsageTimer("com.instagram.android")
+        assertEquals(1, decisions.size)
+        assertEquals("com.instagram.android", decisions[0].packageName)
+    }
+
+    @Test
+    fun timerStartsAndStopsOnAppSwitch() = runTest {
+        val r = repo()
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
+
+        core.onForegroundChange("com.instagram.android", 0L)
+        assertNotNull(core.activeTimers["com.instagram.android"])
+
+        core.onForegroundChange("com.youtube.android", 30 * 60_000L)
+        assertNull(core.activeTimers["com.instagram.android"])
+    }
+
+    @Test
+    fun stopUsageTimerCancelsJob() = runTest {
+        val r = repo()
+        val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
+
+        core.startUsageTimer("com.instagram.android")
+        assertNotNull(core.activeTimers["com.instagram.android"])
+        core.stopUsageTimer("com.instagram.android")
+        assertNull(core.activeTimers["com.instagram.android"])
     }
 }
