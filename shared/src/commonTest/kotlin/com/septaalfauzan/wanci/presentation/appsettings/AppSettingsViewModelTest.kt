@@ -463,6 +463,25 @@ class AppSettingsViewModelTest {
         assertNull(viewModel.state.value.requestedEnabled)
     }
 
+    /** A refresh drops a stale removal failure too: a read is the truth the notice is about. */
+    @Test
+    fun aRefreshDropsAStaleRemoveFailure() = runTest {
+        monitor()
+        val flaky = ThrowingWriteRepository(repository)
+        val viewModel = newViewModel(repository = flaky)
+
+        viewModel.requestRemove()
+        viewModel.remove { }
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.removeFailed)
+
+        flaky.failRemove = false
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.removeFailed)
+    }
+
     /**
      * The write returned normally and the row still disagrees: nothing was written. Reporting the
      * requested state would leave a switch showing "paused" over a row that is still counting.

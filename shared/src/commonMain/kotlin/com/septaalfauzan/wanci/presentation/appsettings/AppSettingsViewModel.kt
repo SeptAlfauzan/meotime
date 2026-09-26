@@ -421,6 +421,7 @@ class AppSettingsViewModel(
                         // a stale one is dropped rather than left to describe a row that has moved.
                         updateFailed = false,
                         requestedEnabled = null,
+                        removeFailed = false,
                     )
                 }
             }
