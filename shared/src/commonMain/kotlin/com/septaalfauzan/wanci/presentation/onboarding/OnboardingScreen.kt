@@ -8,10 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +17,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.septaalfauzan.wanci.presentation.theme.WanciButton
+import com.septaalfauzan.wanci.presentation.theme.WanciOutlinedButton
 
 @Composable
 fun OnboardingScreen(
@@ -64,17 +63,29 @@ fun OnboardingScreen(
         Spacer(Modifier.height(32.dp))
 
         if (state.permissionStatus.allGranted) {
-            Button(onClick = { viewModel.completeOnboarding(onFinished) }, modifier = Modifier.fillMaxWidth()) {
+            WanciButton(
+                onClick = { viewModel.completeOnboarding(onFinished) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text("You're ready")
             }
         } else {
-            OutlinedButton(onClick = viewModel::refresh, modifier = Modifier.fillMaxWidth()) {
+            WanciOutlinedButton(
+                onClick = viewModel::refresh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text("Check permissions")
             }
         }
     }
 }
 
+/**
+ * A granted permission is rendered as a status, not as a live control: there is nothing left to
+ * request, so the row exposes nothing to a screen reader or a switch-control user instead of a
+ * button that only *looks* finished. A disabled Material button would also drop the label to the
+ * disabled alpha and fail text contrast, which is why the state is a plain label.
+ */
 @Composable
 private fun PermissionRow(
     title: String,
@@ -90,8 +101,12 @@ private fun PermissionRow(
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(detail, style = MaterialTheme.typography.bodySmall)
         }
-        ElevatedButton(onClick = onClick) {
-            Text(if (granted) "Granted" else "Grant")
+        if (granted) {
+            Text("\u2713 Granted", style = MaterialTheme.typography.labelMedium)
+        } else {
+            WanciOutlinedButton(onClick = onClick) {
+                Text("Grant")
+            }
         }
     }
 }

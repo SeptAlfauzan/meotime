@@ -7,15 +7,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.septaalfauzan.wanci.presentation.theme.WanciButton
+import com.septaalfauzan.wanci.presentation.theme.WanciOutlinedButton
 
 @Composable
 fun OverlayScreen(
@@ -45,11 +45,11 @@ fun OverlayScreen(
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(32.dp))
-        Button(onClick = onLeave, modifier = Modifier.fillMaxWidth()) {
+        WanciButton(onClick = onLeave, modifier = Modifier.fillMaxWidth()) {
             Text("Leave app")
         }
         Spacer(Modifier.height(10.dp))
-        OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) {
+        WanciOutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) {
             Text("Manage restriction")
         }
     }

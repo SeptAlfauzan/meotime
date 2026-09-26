@@ -22,6 +22,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.septaalfauzan.wanci.EXTRA_REQUESTED_PACKAGE
 import com.septaalfauzan.wanci.presentation.overlay.OverlayScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -156,7 +157,7 @@ class OverlayManager(
                     addCategory(Intent.CATEGORY_LAUNCHER)
                 }
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            intent.putExtra("com.septaalfauzan.wanci.extra.PACKAGE", packageName)
+            intent.putExtra(EXTRA_REQUESTED_PACKAGE, packageName)
             context.startActivity(intent)
         }
     }
