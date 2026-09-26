@@ -54,7 +54,6 @@ class RoutesTest {
     fun argumentNameMatchesTheTemplatePlaceholder() {
         // A navArgument declared under a different name than the template placeholder resolves to
         // null silently, which is exactly how Task 12/13 would read a package that is missing.
-        assertEquals("{${Routes.ARGUMENT_PACKAGE}}", "{" + Routes.ARGUMENT_PACKAGE + "}")
         assertTrue(Routes.APP_SETTINGS.endsWith("{${Routes.ARGUMENT_PACKAGE}}"), Routes.APP_SETTINGS)
         assertTrue(Routes.LIMIT.endsWith("{${Routes.ARGUMENT_PACKAGE}}"), Routes.LIMIT)
     }

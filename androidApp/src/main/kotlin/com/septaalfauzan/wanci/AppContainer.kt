@@ -12,6 +12,7 @@ import com.septaalfauzan.wanci.monitoring.MonitoringCore
 import com.septaalfauzan.wanci.monitoring.OverlayManager
 import com.septaalfauzan.wanci.permission.PermissionActions
 import com.septaalfauzan.wanci.permission.PermissionChecks
+import com.septaalfauzan.wanci.presentation.DeepLinkRequest
 import com.septaalfauzan.wanci.presentation.WanciAppDependencies
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,10 +39,10 @@ class AppContainer(private val context: Context) {
      * application [Context], so calling this from a composable on every deep-link intent cannot
      * leak an Activity or duplicate the database.
      *
-     * [requestedPackage] is what `MainActivity` read off the launch intent; the navigation host
-     * turns it into the `appsettings/{packageName}` destination.
+     * [deepLink] is what `MainActivity` read off the launch intent; the navigation host turns it
+     * into the `appsettings/{packageName}` destination.
      */
-    fun toDependencies(requestedPackage: String?): WanciAppDependencies =
+    fun toDependencies(deepLink: DeepLinkRequest?): WanciAppDependencies =
         WanciAppDependencies(
             useCases = WanciUseCases(repository, todayKey),
             todayKey = todayKey,
@@ -49,6 +50,6 @@ class AppContainer(private val context: Context) {
             permissionNavigator = PermissionActions(context),
             installedAppsProvider = InstalledAppsProviderAndroid(context),
             installedAppCheck = AppLabelResolver(context).asInstalledAppCheck(),
-            requestedPackage = requestedPackage,
+            deepLink = deepLink,
         )
 }

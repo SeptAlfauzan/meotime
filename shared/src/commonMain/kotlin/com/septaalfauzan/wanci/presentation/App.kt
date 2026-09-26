@@ -18,11 +18,10 @@ import com.septaalfauzan.wanci.presentation.theme.MonochromeTheme
  * DI manual and the whole graph buildable in one place: adding a screen in Tasks 10-13
  * means adding a field here, not a framework.
  *
- * [requestedPackage] is the deep-link seam. `OverlayManager` launches the app with
- * `com.septaalfauzan.wanci.extra.PACKAGE` when the user taps "Manage restriction" on the
- * overlay, and the navigation host turns a non-null value into the `appsettings/{packageName}`
- * route. It is host state, not navigation state, so it is passed in rather than read from a
- * platform Intent inside common code.
+ * [deepLink] is the deep-link seam. `OverlayManager` launches the app with the PACKAGE extra when
+ * the user taps "Manage restriction" on the overlay, and the navigation host turns a non-null
+ * value into the `appsettings/{packageName}` route. It is host state, not navigation state, so it
+ * is passed in rather than read from a platform Intent inside common code.
  */
 data class WanciAppDependencies(
     val useCases: WanciUseCases,
@@ -31,7 +30,23 @@ data class WanciAppDependencies(
     val permissionNavigator: PermissionNavigator,
     val installedAppsProvider: InstalledAppsProvider,
     val installedAppCheck: InstalledAppCheck,
-    val requestedPackage: String? = null,
+    val deepLink: DeepLinkRequest? = null,
+)
+
+/**
+ * One deep-link delivery: the app to open, plus a per-delivery [nonce].
+ *
+ * The nonce exists because the Manage flow always targets the *same* package. A bare `String?`
+ * would be compared structurally, so re-delivering `com.foo` over `com.foo` invalidates no
+ * Compose state, nothing recomposes and the navigation effect never re-runs — the user taps
+ * "Manage restriction" a second time and stays where they are. Every delivery gets a fresh nonce,
+ * so [deepLink] is never equal to the previous one and the delivery is always observable. It is
+ * monotonic per activity, not global: it only has to differ between two consecutive deliveries in
+ * one process.
+ */
+data class DeepLinkRequest(
+    val packageName: String,
+    val nonce: Long,
 )
 
 val LocalDependencies = staticCompositionLocalOf<WanciAppDependencies> {

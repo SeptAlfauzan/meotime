@@ -12,11 +12,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.savedstate.read
 import com.septaalfauzan.wanci.presentation.LocalDependencies
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardScreen
 import com.septaalfauzan.wanci.presentation.dashboard.DashboardViewModel
 import com.septaalfauzan.wanci.presentation.onboarding.OnboardingScreen
 import com.septaalfauzan.wanci.presentation.onboarding.OnboardingViewModel
+import kotlinx.coroutines.flow.catch
 
 /**
  * Route strings. The `{packageName}` templates are matched by the navigation library; the
@@ -54,23 +56,29 @@ object Routes {
  * reset.
  *
  * **Deep links.** A cold start from the overlay's "Manage restriction" action arrives as
- * `requestedPackage` and becomes the start destination. A warm start (the app is already
- * running, so `MainActivity` receives the extra through `onNewIntent` because the activity is
- * `singleTask`) pushes the destination onto the existing back stack instead, so Back returns to
- * the dashboard rather than leaving the app.
+ * `deepLink` and becomes the start destination. A warm start (the app is already running, so
+ * `MainActivity` receives the extra through `onNewIntent` because the activity is `singleTask`)
+ * pushes the destination onto the existing back stack instead, so Back returns to the dashboard
+ * rather than leaving the app. Both paths key on the whole request, nonce included, so a repeat
+ * request for the *same* package re-fires instead of being written over an equal value.
  */
 @Composable
 fun AppNavHost(
     navController: NavHostController = rememberNavController(),
 ) {
     val deps = LocalDependencies.current
-    val requestedPackage = deps.requestedPackage
-    val onboardingComplete by deps.useCases.observeOnboardingComplete().collectAsState(initial = null)
+    val deepLink = deps.deepLink
+    val onboardingComplete by deps.useCases.observeOnboardingComplete()
+        // A failed read must not leave the app permanently blank: `collectAsState` cancels its
+        // collector when the upstream throws, so the flow has to be kept alive here. Falling back
+        // to "not complete" shows onboarding, which is the recoverable branch.
+        .catch { emit(false) }
+        .collectAsState(initial = null)
 
     if (onboardingComplete == null) return
 
     val startDestination = remember {
-        requestedPackage?.let(Routes::appSettings)
+        deepLink?.let { Routes.appSettings(it.packageName) }
             ?: if (onboardingComplete == true) Routes.DASHBOARD else Routes.ONBOARDING
     }
 
@@ -112,23 +120,33 @@ fun AppNavHost(
         composable(
             route = Routes.LIMIT,
             arguments = listOf(navArgument(Routes.ARGUMENT_PACKAGE) { type = NavType.StringType }),
-        ) {
-            // SetLimitViewModel + SetLimitScreen land in Task 12; they read and decode
-            // entry.arguments.getString(Routes.ARGUMENT_PACKAGE).
+        ) { entry ->
+            // SetLimitViewModel + SetLimitScreen land in Task 12; they read the already-decoded
+            // `entry.arguments.getString(Routes.ARGUMENT_PACKAGE)`; do NOT decode again.
         }
         composable(
             route = Routes.APP_SETTINGS,
             arguments = listOf(navArgument(Routes.ARGUMENT_PACKAGE) { type = NavType.StringType }),
-        ) {
-            // AppSettingsViewModel + AppSettingsScreen land in Task 13; they read and decode
-            // entry.arguments.getString(Routes.ARGUMENT_PACKAGE).
+        ) { entry ->
+            // AppSettingsViewModel + AppSettingsScreen land in Task 13; they read the already-decoded
+            // `entry.arguments.getString(Routes.ARGUMENT_PACKAGE)`; do NOT decode again.
         }
     }
 
-    LaunchedEffect(requestedPackage) {
-        if (requestedPackage == null) return@LaunchedEffect
-        if (navController.currentDestination?.route == Routes.APP_SETTINGS) return@LaunchedEffect
-        navController.navigate(Routes.appSettings(requestedPackage)) { launchSingleTop = true }
+    LaunchedEffect(deepLink) {
+        val request = deepLink ?: return@LaunchedEffect
+        val currentEntry = navController.currentBackStackEntry
+        // The route pattern alone is not enough: it matches *any* appsettings destination, so a
+        // deep link for com.bar would be dropped while the user sits on appsettings/com.foo. The
+        // resolved argument - the entry's saved state, filled and already decoded by
+        // NavDeepLink.getMatchingPathArguments - is what says whether this destination *is* this
+        // request. It is read through SavedState.read, which is the common-code accessor; the
+        // entry's `arguments` is a Bundle on Android and a SavedState on iOS.
+        val currentPackage = currentEntry?.arguments?.read { getStringOrNull(Routes.ARGUMENT_PACKAGE) }
+        val isSameAppSettings = currentEntry?.destination?.route == Routes.APP_SETTINGS &&
+            currentPackage == request.packageName
+        if (isSameAppSettings) return@LaunchedEffect
+        navController.navigate(Routes.appSettings(request.packageName)) { launchSingleTop = true }
     }
 }
 
@@ -138,10 +156,16 @@ private const val HEX_DIGITS = "0123456789ABCDEF"
 /**
  * Percent-encodes one path segment.
  *
- * The navigation library does not decode route arguments, so a value that travels through
- * [Routes.appSettings] has to be encoded here and decoded by the screen that reads it. This is a
- * hand-rolled RFC 3986 unreserved-set encoder rather than `java.net.URLEncoder`, which is not
- * available in common code and encodes for query strings (space becomes `+`, which a path
+ * Encoding is still required: a value that travels through [Routes.appSettings] must not be able
+ * to carry a `/`, `?` or `#` and forge a second segment or truncate the route. Decoding is *not*
+ * the counterpart of this function, because the navigation library already decodes path arguments
+ * on read — `NavDeepLink.getMatchingPathArguments` runs the matched values through
+ * `NavUriUtils.decode` — so a destination reads the plain value straight out of
+ * `arguments.getString(...)` and must not decode it a second time. That also keeps the JVM's
+ * URL-decoding helper out of common code, where it does not exist for the iOS target.
+ *
+ * This is a hand-rolled RFC 3986 unreserved-set encoder rather than `java.net.URLEncoder`, which
+ * is not available in common code and encodes for query strings (space becomes `+`, which a path
  * segment never means). Package names are `[A-Za-z0-9_.]` in practice, so the escaping path is
  * defensive: it guarantees a value containing `/` cannot forge an extra segment.
  */
