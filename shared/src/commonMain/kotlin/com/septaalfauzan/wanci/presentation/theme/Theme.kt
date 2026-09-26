@@ -1,9 +1,29 @@
+/**
+ * Wanci design system — monochrome, border-based, no gradients and no shadows.
+ *
+ * Everything a screen needs is centralised here: color, type, shape, spacing and
+ * control sizing. Screens read tokens from [androidx.compose.material3.MaterialTheme],
+ * [WanciTokens.spacing] and [WanciTokens.controls] instead of hard-coding dp values or
+ * picking colours.
+ *
+ * The palette is intentionally achromatic (warm neutrals only) per the approved design
+ * spec. **All 48 [androidx.compose.material3.ColorScheme] roles are authored explicitly in
+ * both [MonochromeLight] and [MonochromeDark]** — an omitted role silently falls back to
+ * Material3's default purple ramp, which would put a hue into a monochrome app the first
+ * time a screen touched it. Every text/surface pair below is verified at >= 4.5:1 contrast
+ * and the hairline border at >= 3:1 against `surface`/`background` (where a bordered control
+ * actually sits); against the deepest container fills `outlineVariant` measures 2.65–2.80:1,
+ * so a border is never the sole carrier of meaning. See `task-8-report.md` for the measured
+ * ratios and the exact worst cases.
+ */
 package com.septaalfauzan.wanci.presentation.theme
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -18,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,20 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Wanci design system — monochrome, border-based, no gradients and no shadows.
- *
- * Everything a screen needs is centralised here: color, type, shape, spacing and
- * control sizing. Screens read tokens from [MaterialTheme], [WanciTheme.spacing] and
- * [WanciTheme.controls] instead of hard-coding dp values or picking colours.
- *
- * The palette is intentionally achromatic (warm neutrals only) per the approved design
- * spec. Every text/surface pair below is verified at >= 4.5:1 contrast and every
- * meaningful border at >= 3:1, in both schemes. See `task-8-report.md` for the
- * measured ratios.
- */
-/**
  * 4dp-based spacing scale — the single source of truth for rhythm in every screen.
- * Mirrors a CSS custom-property scale: `WanciTheme.spacing.md` instead of a magic `16.dp`.
+ * Mirrors a CSS custom-property scale: `WanciTokens.spacing.md` instead of a magic `16.dp`.
  */
 @Immutable
 class WanciSpacing(private val unit: Dp = 4.dp) {
@@ -65,14 +74,20 @@ class WanciSpacing(private val unit: Dp = 4.dp) {
  * Control sizing tokens. Material3's stock `Button`/`OutlinedButton`/`TextButton` are
  * 40dp tall, below the 48dp minimum interactive target; the `Wanci*` buttons at the
  * bottom of this file apply these instead.
+ *
+ * Deliberately **not** annotated `@Immutable`: [buttonContentPadding] and
+ * [textButtonContentPadding] hold a [PaddingValues], which Compose's stability inference
+ * does not treat as a stable type, so an immutable contract here would be a lie.
  */
-@Immutable
 class WanciControls(
     val minTouchTarget: Dp = 48.dp,
     val minButtonHeight: Dp = 48.dp,
+    /** Minimum height for a list/settings row. Used by the Task 9 screens. */
     val minRowHeight: Dp = 56.dp,
     val borderWidth: Dp = 1.dp,
     val buttonContentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+    /** Text buttons are label-only, so they get a tighter gutter than the filled buttons. */
+    val textButtonContentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
 ) {
     companion object {
         val Default = WanciControls()
@@ -82,8 +97,8 @@ class WanciControls(
 val LocalWanciSpacing = staticCompositionLocalOf { WanciSpacing.Default }
 val LocalWanciControls = staticCompositionLocalOf { WanciControls.Default }
 
-/** Token accessors, e.g. `WanciTheme.spacing.md`. */
-object WanciTheme {
+/** Token accessors, e.g. `WanciTokens.spacing.md`. Not a theme composable. */
+object WanciTokens {
     val spacing: WanciSpacing
         @Composable @ReadOnlyComposable get() = LocalWanciSpacing.current
 
@@ -134,9 +149,25 @@ val MonochromeLight = lightColorScheme(
     errorContainer = Color(0xFFE5E5E1),
     onErrorContainer = Color(0xFF1A1A19),
     scrim = Color(0xFF000000),
+    // Fixed roles (theme-invariant elements: FABs, badges, docked bars). Material3 would
+    // otherwise default these to its purple ramp, so each one is mapped onto this
+    // scheme's own warm-neutral ladder: *Fixed == the matching *Container tone,
+    // *FixedDim == one step down, on*Fixed == the matching on*Container colour.
+    primaryFixed = Color(0xFFEDEDEA),
+    primaryFixedDim = Color(0xFFE7E7E3),
+    onPrimaryFixed = Color(0xFF111111),
+    onPrimaryFixedVariant = Color(0xFF55554F),
+    secondaryFixed = Color(0xFFF2F2EF),
+    secondaryFixedDim = Color(0xFFE7E7E3),
+    onSecondaryFixed = Color(0xFF1A1A19),
+    onSecondaryFixedVariant = Color(0xFF55554F),
+    tertiaryFixed = Color(0xFFFAFAF7),
+    tertiaryFixedDim = Color(0xFFE7E7E3),
+    onTertiaryFixed = Color(0xFF1A1A19),
+    onTertiaryFixedVariant = Color(0xFF55554F),
 )
 
-/** Dark scheme: exact structural mirror of [MonochromeLight], not merely dimmed. */
+/** Dark scheme: structural counterpart of [MonochromeLight], not merely dimmed. */
 val MonochromeDark = darkColorScheme(
     primary = Color(0xFFF5F5F2),
     onPrimary = Color(0xFF111111),
@@ -160,7 +191,7 @@ val MonochromeDark = darkColorScheme(
     surfaceTint = Color(0x00000000),
     inverseSurface = Color(0xFFF2F2EF),
     inverseOnSurface = Color(0xFF1A1A19),
-    surfaceBright = Color(0xFF343432),
+    surfaceBright = Color(0xFF242422),
     surfaceDim = Color(0xFF0A0A0A),
     surfaceContainerLowest = Color(0xFF000000),
     surfaceContainerLow = Color(0xFF121211),
@@ -174,6 +205,22 @@ val MonochromeDark = darkColorScheme(
     errorContainer = Color(0xFF2E2E2B),
     onErrorContainer = Color(0xFFF5F5F2),
     scrim = Color(0xFF000000),
+    // Fixed roles: same warm-neutral mapping as the light scheme, stepped onto the dark
+    // ladder. surfaceBright above is deliberately held at surfaceContainerHigh rather
+    // than lifted — the extra lightness had no light-side counterpart and pushed
+    // onSurfaceVariant to the system's tightest text margin.
+    primaryFixed = Color(0xFF2A2A28),
+    primaryFixedDim = Color(0xFF1A1A19),
+    onPrimaryFixed = Color(0xFFF5F5F2),
+    onPrimaryFixedVariant = Color(0xFFA3A39D),
+    secondaryFixed = Color(0xFF232321),
+    secondaryFixedDim = Color(0xFF1A1A19),
+    onSecondaryFixed = Color(0xFFE7E7E3),
+    onSecondaryFixedVariant = Color(0xFFA3A39D),
+    tertiaryFixed = Color(0xFF1F1F1E),
+    tertiaryFixedDim = Color(0xFF1A1A19),
+    onTertiaryFixed = Color(0xFFDEDEDA),
+    onTertiaryFixedVariant = Color(0xFFA3A39D),
 )
 
 /** Tight tracking on display/headline, generous leading on body copy. */
@@ -213,18 +260,21 @@ val WanciShapes = Shapes(
 
 /**
  * Dark-mode override. `null` means "follow the system"; hosts that expose an in-app
- * toggle wrap their content in `CompositionLocalProvider(LocalDarkTheme provides true)`.
+ * toggle wrap [MonochromeTheme] in
+ * `CompositionLocalProvider(LocalDarkTheme provides true) { MonochromeTheme { ... } }`.
  */
-val LocalDarkTheme = staticCompositionLocalOf<Boolean?> { null }
+val LocalDarkTheme = compositionLocalOf<Boolean?> { null }
 
 @Composable
 fun MonochromeTheme(
     darkTheme: Boolean = LocalDarkTheme.current ?: isSystemInDarkTheme(),
+    spacing: WanciSpacing = WanciSpacing.Default,
+    controls: WanciControls = WanciControls.Default,
     content: @Composable () -> Unit,
 ) {
     CompositionLocalProvider(
-        LocalWanciSpacing provides WanciSpacing.Default,
-        LocalWanciControls provides WanciControls.Default,
+        LocalWanciSpacing provides spacing,
+        LocalWanciControls provides controls,
     ) {
         MaterialTheme(
             colorScheme = if (darkTheme) MonochromeDark else MonochromeLight,
@@ -240,12 +290,14 @@ fun WanciButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    contentPadding: PaddingValues = WanciControls.Default.buttonContentPadding,
+    contentPadding: PaddingValues = WanciTokens.controls.buttonContentPadding,
     content: @Composable RowScope.() -> Unit,
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = WanciTheme.controls.minButtonHeight),
+        modifier = modifier
+            .heightIn(min = WanciTokens.controls.minButtonHeight)
+            .widthIn(min = WanciTokens.controls.minTouchTarget),
         enabled = enabled,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.buttonColors(),
@@ -259,15 +311,21 @@ fun WanciOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    contentPadding: PaddingValues = WanciControls.Default.buttonContentPadding,
+    contentPadding: PaddingValues = WanciTokens.controls.buttonContentPadding,
     content: @Composable RowScope.() -> Unit,
 ) {
+    // Take the brush from the stock border so the enabled/disabled colour logic stays
+    // Material3's, but drive the width from our own token.
+    val border = ButtonDefaults.outlinedButtonBorder(enabled)
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = WanciTheme.controls.minButtonHeight),
+        modifier = modifier
+            .heightIn(min = WanciTokens.controls.minButtonHeight)
+            .widthIn(min = WanciTokens.controls.minTouchTarget),
         enabled = enabled,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.outlinedButtonColors(),
+        border = BorderStroke(WanciTokens.controls.borderWidth, border.brush),
         contentPadding = contentPadding,
         content = content,
     )
@@ -278,12 +336,14 @@ fun WanciTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    contentPadding: PaddingValues = WanciControls.Default.buttonContentPadding,
+    contentPadding: PaddingValues = WanciTokens.controls.textButtonContentPadding,
     content: @Composable RowScope.() -> Unit,
 ) {
     TextButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = WanciTheme.controls.minButtonHeight),
+        modifier = modifier
+            .heightIn(min = WanciTokens.controls.minButtonHeight)
+            .widthIn(min = WanciTokens.controls.minTouchTarget),
         enabled = enabled,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.textButtonColors(),
