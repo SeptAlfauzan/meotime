@@ -1007,21 +1007,7 @@ class MonitoringCore(
 
 Note `detached` starts `true`. The core does nothing until something calls [attach], which is the safe default for a singleton constructed at app start but not yet owned by a running service.
 
-- [ ] **Step 6: Shim the two monitoring call sites so the tree compiles**
-
-`MonitoringCore` reads usage and compares it against `app.dailyLimitMinutes` through `LimitChecker.exceeds(usageMinutes, limitMinutes)`. After the rename it would be handed **seconds** and would compare them to a **minute-denominated** limit — making every limit 60× more permissive, silently, with the overlay still appearing on time relative to the new scale. That is the same class of bug Task 6 exists to prevent, so it cannot be allowed to stand even for one commit.
-
-Convert back at the call site and change nothing else in this task. `MonitoringCore.kt` lines 35, 61, 114:
-
-- line 35, the usage read: `repository.getTodayUsageSeconds(packageName, todayIso()) / 60L`
-- line 61, the limit comparison: unchanged, still minutes on both sides
-- line 114, the write: `repository.recordUsageSeconds(packageName, deltaMinutes * 60L, todayIso())`
-
-`MonitoringCoreTest.kt` lines 94 and 115: rename `r.recordUsage(...)` to `r.recordUsageSeconds(...)` and multiply the delta by 60 so the assertions still describe the same number of minutes they did before.
-
-The result is a commit in which stored data is in seconds, every existing behaviour is bit-for-bit what it was, and `MonitoringCore` is exactly as imperfect as it was. Task 3 then rewrites both files properly and deletes the shim. Do not improve `MonitoringCore` here — Task 3 owns it, and a partial improvement here is what creates the 60× regression.
-
-- [ ] **Step 8: Run the tests to verify they pass**
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `./gradlew :shared:testAndroidHostTest --tests '*MonitoringCoreTest*' --tests '*LimitCheckerTest*'`
 
