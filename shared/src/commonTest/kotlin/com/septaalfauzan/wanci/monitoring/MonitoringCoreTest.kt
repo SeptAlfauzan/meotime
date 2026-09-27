@@ -191,6 +191,7 @@ class MonitoringCoreTest {
 
         now = 30 * 60_000L
         advanceTimeBy(1_000L)
+        runCurrent()
         assertEquals(1, decisions.size)
     }
 
