@@ -139,7 +139,7 @@ class AppSettingsViewModelTest {
     fun resolvesTheAppTheDeepLinkNamed() = runTest {
         repository.addMonitoredApp(PACKAGE, LABEL, 30)
         repository.addMonitoredApp(OTHER_PACKAGE, "YouTube", 60)
-        repository.recordUsage(PACKAGE, 42, DATE)
+        repository.recordUsageSeconds(PACKAGE, 42L, DATE)
 
         val state = newViewModel(packageName = PACKAGE).state.value
 
@@ -147,7 +147,7 @@ class AppSettingsViewModelTest {
         assertEquals(PACKAGE, app.packageName)
         assertEquals(LABEL, app.appName)
         assertEquals(30, app.dailyLimitMinutes)
-        assertEquals(42L, state.usageMinutes)
+        assertEquals(42L, state.usageSeconds)
         assertTrue(app.enabled)
         assertFalse(state.loading)
         assertFalse(state.error)
@@ -394,7 +394,7 @@ class AppSettingsViewModelTest {
         val state = newViewModel().state.value
         val app = assertNotNull(state.app)
 
-        val row = dashboardRow(app.copy(todayUsageMinutes = state.usageMinutes))
+        val row = dashboardRow(app.copy(todayUsageSeconds = state.usageSeconds))
 
         assertTrue(row.paused)
         assertEquals("Monitoring paused", appStatusLabel(row))
@@ -673,24 +673,5 @@ class AppSettingsViewModelTest {
         val state = viewModel.state.value
         assertTrue(state.error)
         assertNotNull(state.app)
-    }
-
-    /**
-     * A usage reading is formatted without the limit's clamp: 0 minutes is the common case, and a
-     * day can overrun its limit by more than 24 hours. Reusing the limit formatter here would render
-     * "no usage yet" as "1 min" and would make a 25-hour day read as 24.
-     */
-    @Test
-    fun formatsUsageMinutesWithoutClampingThemToALimit() {
-        assertEquals("0 min", formatUsageMinutes(0))
-        assertEquals("1 min", formatUsageMinutes(1))
-        assertEquals("42 min", formatUsageMinutes(42))
-        assertEquals("1 hour", formatUsageMinutes(60))
-        assertEquals("1 hour 30 min", formatUsageMinutes(90))
-        assertEquals("2 hours", formatUsageMinutes(120))
-        assertEquals("25 hours", formatUsageMinutes(1500))
-        assertEquals("25 hours 1 min", formatUsageMinutes(1501))
-        // Nothing records negative minutes, but the formatter cannot be handed one either.
-        assertEquals("0 min", formatUsageMinutes(-5))
     }
 }

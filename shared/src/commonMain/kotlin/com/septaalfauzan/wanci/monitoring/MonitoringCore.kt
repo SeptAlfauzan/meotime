@@ -8,6 +8,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/**
+ * The polling/recording loop, still speaking whole minutes at both ends.
+ *
+ * The repository now stores and returns **seconds**, so every read here is divided back to minutes
+ * and every write is multiplied up: `LimitChecker.exceeds` and `OverlayDecision.usageMinutes` both
+ * stay minute-denominated, and the behaviour here is bit-for-bit what it was before the unit
+ * changed. The shim is deliberate and temporary — the unit that records a session exactly replaces
+ * this arithmetic and deletes it, and dropping either half of it early would compare seconds
+ * against a minute-denominated limit and make every limit 60x more permissive, silently.
+ */
 class MonitoringCore(
     private val repository: ScreenTimeRepository,
     private val todayKey: TodayKey,
@@ -32,7 +42,7 @@ class MonitoringCore(
         val app = repository.getMonitoredApp(packageName)
         if (app == null || !app.enabled) return null
         val date = todayKey.todayIso()
-        val usage = repository.getTodayUsage(packageName, date)
+        val usage = repository.getTodayUsageSeconds(packageName, date) / 60L
         if (!LimitChecker.exceeds(usage, app.dailyLimitMinutes)) return null
         val triggered = triggeredByDate.getOrPut(date) { mutableSetOf() }
         if (packageName in triggered) return null
@@ -58,7 +68,7 @@ class MonitoringCore(
         val job = scope.launch {
             while (isActive) {
                 delay(5_000L)
-                val usage = repository.getTodayUsage(packageName, todayKey.todayIso())
+                val usage = repository.getTodayUsageSeconds(packageName, todayKey.todayIso()) / 60L
                 if (LimitChecker.exceeds(usage, app.dailyLimitMinutes)) {
                     val triggered = triggeredByDate.getOrPut(todayKey.todayIso()) { mutableSetOf() }
                     if (packageName !in triggered) {
@@ -111,10 +121,10 @@ class MonitoringCore(
 
         val date = todayKey.todayIso()
         if (deltaMinutes >= 1) {
-            repository.recordUsage(previousPackage, deltaMinutes, date)
+            repository.recordUsageSeconds(previousPackage, deltaMinutes * 60L, date)
         }
 
-        val usage = repository.getTodayUsage(previousPackage, date)
+        val usage = repository.getTodayUsageSeconds(previousPackage, date) / 60L
         if (!LimitChecker.exceeds(usage, app.dailyLimitMinutes)) return null
 
         val triggered = triggeredByDate.getOrPut(date) { mutableSetOf() }

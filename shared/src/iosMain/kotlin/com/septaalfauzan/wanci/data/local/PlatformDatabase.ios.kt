@@ -17,6 +17,7 @@ actual fun createWanciDatabase(nameOverride: String?): WanciDatabase {
     val name = nameOverride ?: (NSHomeDirectory() + "/Documents/" + WanciDatabase.DB_NAME)
     return Room.databaseBuilder<WanciDatabase>(name = name)
         .setDriver(BundledSQLiteDriver())
+        .addMigrations(MIGRATION_1_2)
         .build()
 }
 

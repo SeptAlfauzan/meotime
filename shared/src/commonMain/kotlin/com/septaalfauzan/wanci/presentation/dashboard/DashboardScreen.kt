@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.septaalfauzan.wanci.domain.model.MonitoredApp
+import com.septaalfauzan.wanci.presentation.format.formatUsage
 import com.septaalfauzan.wanci.presentation.theme.WanciButton
 import com.septaalfauzan.wanci.presentation.theme.WanciOutlinedButton
 import com.septaalfauzan.wanci.presentation.theme.WanciTokens
@@ -151,7 +152,7 @@ private fun MonitoredAppRow(app: MonitoredApp, onClick: () -> Unit) {
                     }
                 }
                 Text(
-                    "${app.todayUsageMinutes} / ${app.dailyLimitMinutes} min",
+                    "${formatUsage(app.todayUsageSeconds)} / ${app.dailyLimitMinutes} min",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

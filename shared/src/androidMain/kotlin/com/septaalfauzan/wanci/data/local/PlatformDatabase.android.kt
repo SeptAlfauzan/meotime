@@ -19,6 +19,7 @@ actual fun createWanciDatabase(nameOverride: String?): WanciDatabase {
     val name = nameOverride ?: WanciDatabase.DB_NAME
     return Room.databaseBuilder(AndroidAppContextHolder.context, WanciDatabase::class.java, name)
         .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
+        .addMigrations(MIGRATION_1_2)
         .build()
 }
 

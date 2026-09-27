@@ -37,7 +37,7 @@ data class DashboardUiState(
  *
  * [paused] is a separate axis, not a fourth kind of limit state: an app the user switched off is
  * not measured at all ([com.septaalfauzan.wanci.monitoring.MonitoringCore] returns before
- * recording), so its `todayUsageMinutes` is a frozen reading rather than a live one. A paused row
+ * recording), so its `todayUsageSeconds` is a frozen reading rather than a live one. A paused row
  * therefore reports an empty bar and no remaining minutes — drawing a live-looking budget for a
  * number nothing is updating is the bug, not the label. `limitReached` keeps its plain meaning
  * (`usage >= limit`) so a row that had already reached its limit when it was paused is not
@@ -59,18 +59,23 @@ data class DashboardAppRow(
  * with a full bar rather than rendering a broken indicator.
  */
 internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
-    val limit = app.dailyLimitMinutes
-    val usage = app.todayUsageMinutes
-    val measurable = limit > 0
+    // Converted once, here, because the limit is stored in minutes and the usage is read in
+    // seconds. Doing the arithmetic across the two units would leave the ratio, the comparison
+    // and the subtraction each wrong by a factor of 60 — with a row that still renders, so the
+    // bug would ship looking like a design choice.
+    val limitSeconds = app.dailyLimitMinutes * 60L
+    val usage = app.todayUsageSeconds
+    val measurable = limitSeconds > 0
     val paused = !app.enabled
     val progress = when {
         paused -> 0f
-        measurable -> (usage.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+        measurable -> (usage.toFloat() / limitSeconds.toFloat()).coerceIn(0f, 1f)
         else -> 1f
     }
+    val remainingSeconds = if (measurable && !paused) (limitSeconds - usage).coerceAtLeast(0L) else 0L
     return DashboardAppRow(
-        limitReached = !measurable || usage >= limit.toLong(),
-        remainingMinutes = if (measurable && !paused) (limit.toLong() - usage).coerceAtLeast(0L) else 0L,
+        limitReached = !measurable || usage >= limitSeconds,
+        remainingMinutes = remainingSeconds / 60,
         progress = progress,
         paused = paused,
     )

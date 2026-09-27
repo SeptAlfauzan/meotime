@@ -52,56 +52,62 @@ class ScreenTimeRepositoryImplTest {
                 repo.addMonitoredApp("com.instagram.android", "Instagram", 60)
             )
 
-            repo.recordUsage("com.instagram.android", 42, "2026-09-25")
-            assertEquals(42L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
-            assertEquals(0L, repo.getTodayUsage("com.instagram.android", "2026-09-26"))
+            repo.recordUsageSeconds("com.instagram.android", 42L, "2026-09-25")
+            assertEquals(42L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
+            assertEquals(0L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-26"))
 
             val apps = repo.observeMonitoredApps().first()
             assertEquals(1, apps.size)
-            assertEquals(42L, apps.first().todayUsageMinutes)
+            assertEquals(42L, apps.first().todayUsageSeconds)
         } finally {
             db.closeAndDelete()
         }
     }
 
     @Test
-    fun recordUsageAccumulatesDeltas() = runTest {
+    fun recordUsageSecondsAccumulatesDeltas() = runTest {
         val (repo, db) = newRepo()
         try {
-            repo.recordUsage("com.instagram.android", 42, "2026-09-25")
-            repo.recordUsage("com.instagram.android", 8, "2026-09-25")
-            assertEquals(50L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+            repo.recordUsageSeconds("com.instagram.android", 42L, "2026-09-25")
+            repo.recordUsageSeconds("com.instagram.android", 8L, "2026-09-25")
+            assertEquals(50L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
         } finally {
             db.closeAndDelete()
         }
     }
 
+    /**
+     * Reconcile merges by maximum, never by sum, and stays in **minutes** on the wire: the only
+     * caller is `UsageStatsReader`, which reports whole minutes and is not touched until the unit
+     * that deletes this method. The numbers are therefore the same minutes as before, read back out
+     * of a seconds-denominated store.
+     */
     @Test
-    fun reconcileUsesMaxMerge() = runTest {
+    fun reconcileDailyUsageNeverLowersAnExistingTotal() = runTest {
         val (repo, db) = newRepo()
         try {
             repo.addMonitoredApp("com.instagram.android", "Instagram", 30)
-            repo.recordUsage("com.instagram.android", 40, "2026-09-25")
+            repo.recordUsageSeconds("com.instagram.android", 40L, "2026-09-25")
             repo.reconcileDailyUsage(mapOf("com.instagram.android" to 70L), "2026-09-25")
-            assertEquals(70L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+            assertEquals(4_200L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
 
             repo.reconcileDailyUsage(mapOf("com.instagram.android" to 30L), "2026-09-25")
-            assertEquals(70L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
+            assertEquals(4_200L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
         } finally {
             db.closeAndDelete()
         }
     }
 
     @Test
-    fun observeTodayUsageSwitchesDate() = runTest {
+    fun observeTodayUsageSecondsSwitchesDate() = runTest {
         val todayKey = MutableTodayKey("2026-09-25")
         val (repo, db) = newRepo(todayKey)
         try {
             val packageName = "com.instagram.android"
-            repo.recordUsage(packageName, 24, "2026-09-24")
-            repo.recordUsage(packageName, 42, "2026-09-25")
+            repo.recordUsageSeconds(packageName, 24L, "2026-09-24")
+            repo.recordUsageSeconds(packageName, 42L, "2026-09-25")
 
-            val usage = repo.observeTodayUsage(packageName)
+            val usage = repo.observeTodayUsageSeconds(packageName)
             assertEquals(42L, usage.first())
             todayKey.date.value = "2026-09-24"
             assertEquals(24L, usage.first())
@@ -115,11 +121,11 @@ class ScreenTimeRepositoryImplTest {
         val (repo, db) = newRepo()
         try {
             repo.addMonitoredApp("com.instagram.android", "Instagram", 30)
-            repo.recordUsage("com.instagram.android", 10, "2026-09-25")
-            repo.recordUsage("com.instagram.android", 5, "2026-09-24")
+            repo.recordUsageSeconds("com.instagram.android", 10L, "2026-09-25")
+            repo.recordUsageSeconds("com.instagram.android", 5L, "2026-09-24")
             repo.deleteUsageBefore("2026-09-25")
-            assertEquals(10L, repo.getTodayUsage("com.instagram.android", "2026-09-25"))
-            assertEquals(null, db.dailyUsageDao().getUsage("com.instagram.android", "2026-09-24"))
+            assertEquals(10L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
+            assertEquals(null, db.dailyUsageDao().getUsageSeconds("com.instagram.android", "2026-09-24"))
         } finally {
             db.closeAndDelete()
         }
@@ -142,13 +148,13 @@ class ScreenTimeRepositoryImplTest {
         try {
             val packageName = "com.instagram.android"
             repo.addMonitoredApp(packageName, "Instagram", 30)
-            repo.recordUsage(packageName, 42, "2026-09-25")
+            repo.recordUsageSeconds(packageName, 42L, "2026-09-25")
 
-            assertEquals(42L, emissions.receive().first().todayUsageMinutes)
+            assertEquals(42L, emissions.receive().first().todayUsageSeconds)
 
             todayKey.date.value = "2026-09-26"
 
-            assertEquals(0L, emissions.receive().first().todayUsageMinutes)
+            assertEquals(0L, emissions.receive().first().todayUsageSeconds)
         } finally {
             collection.cancel()
             db.closeAndDelete()

@@ -38,7 +38,9 @@ class MonitoringCoreTest {
         assertEquals("com.instagram.android", leaveInstagram.packageName)
         assertTrue(leaveInstagram.usageMinutes >= 30L)
 
-        assertEquals(35L, r.usage.value["com.instagram.android"])
+        // The fake's map is in seconds, like the real store; the core still thinks in minutes, so
+        // this reads back the same "35 minutes" it always asserted.
+        assertEquals(35L, r.usage.value["com.instagram.android"]!! / 60L)
         val decision = core.onForegroundChange("com.instagram.android", 36 * 60_000L)
         assertNull(decision)
 
@@ -73,7 +75,7 @@ class MonitoringCoreTest {
         assertNull(core.onForegroundChange("com.instagram.android", 5 * 60_000L))
         core.onForegroundChange("launcher.pkg", 40 * 60_000L)
 
-        assertEquals(35L, r.usage.value["com.instagram.android"])
+        assertEquals(35L, r.usage.value["com.instagram.android"]!! / 60L)
         assertNull(r.usage.value[selfPkg])
     }
 
@@ -91,7 +93,7 @@ class MonitoringCoreTest {
     @Test
     fun checkCurrentAppReturnsOverlayWhenExceeded() = runTest {
         val r = repo()
-        r.recordUsage("com.instagram.android", 30L, "2026-09-25")
+        r.recordUsageSeconds("com.instagram.android", 30L * 60L, "2026-09-25")
         val core = MonitoringCore(r, today, selfPkg, this) { /* capture */ }
 
         val result = core.checkCurrentApp("com.instagram.android")
@@ -112,7 +114,7 @@ class MonitoringCoreTest {
     fun timerShowsOverlayImmediatelyWhenAlreadyExceeded() = runTest {
         val decisions = mutableListOf<MonitoringCore.OverlayDecision>()
         val r = repo()
-        r.recordUsage("com.instagram.android", 30L, "2026-09-25")
+        r.recordUsageSeconds("com.instagram.android", 30L * 60L, "2026-09-25")
         val core = MonitoringCore(r, today, selfPkg, this) { decision ->
             decisions.add(decision)
         }

@@ -29,23 +29,23 @@ class ScreenTimeRepositoryImpl(
             val usage = dailyUsageDao.observeForDate(date)
             combine(apps, usage) { appEntities, usageEntities ->
                 val usageByPackage = usageEntities.associateBy { it.packageName }
-                appEntities.map { it.toDomain(usageByPackage[it.packageName]?.usageMinutes ?: 0L) }
+                appEntities.map { it.toDomain(usageByPackage[it.packageName]?.usageSeconds ?: 0L) }
             }
         }
     }
 
-    override fun observeTodayUsage(packageName: String): Flow<Long> =
+    override fun observeTodayUsageSeconds(packageName: String): Flow<Long> =
         todayKey.dateFlow().flatMapLatest { date ->
             dailyUsageDao.observeForDate(date).map { usageEntities ->
-                usageEntities.firstOrNull { it.packageName == packageName }?.usageMinutes ?: 0L
+                usageEntities.firstOrNull { it.packageName == packageName }?.usageSeconds ?: 0L
             }
         }
 
     override suspend fun getMonitoredApp(packageName: String): MonitoredApp? =
         monitoredAppDao.getByPackage(packageName)?.toDomain(0L)
 
-    override suspend fun getTodayUsage(packageName: String, date: String): Long =
-        dailyUsageDao.getUsage(packageName, date) ?: 0L
+    override suspend fun getTodayUsageSeconds(packageName: String, date: String): Long =
+        dailyUsageDao.getUsageSeconds(packageName, date) ?: 0L
 
     override suspend fun addMonitoredApp(
         packageName: String,
@@ -77,21 +77,33 @@ class ScreenTimeRepositoryImpl(
         monitoredAppDao.deleteByPackage(packageName)
     }
 
-    override suspend fun recordUsage(packageName: String, deltaMinutes: Long, date: String) {
+    override suspend fun recordUsageSeconds(packageName: String, deltaSeconds: Long, date: String) {
         val now = Clock.System.now().toEpochMilliseconds()
-        if (dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, deltaMinutes, now)) == -1L) {
-            dailyUsageDao.addDelta(packageName, date, deltaMinutes, now)
+        if (dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, deltaSeconds, now)) == -1L) {
+            dailyUsageDao.addDeltaSeconds(packageName, date, deltaSeconds, now)
         }
     }
 
+    /**
+     * Still in **minutes**, unlike every other write here.
+     *
+     * Its only caller is `UsageStatsReader`, which reports whole minutes, and that caller is not
+     * touched until the unit that deletes this method. Converting here rather than passing a
+     * second-denominated number to a minute-denominated caller is what stops the rest of the app
+     * reading this as minutes; the merge itself (insert, else raise, never sum) is unchanged.
+     */
     override suspend fun reconcileDailyUsage(
         deltaMinutesByPackage: Map<String, Long>,
         date: String,
     ) {
         deltaMinutesByPackage.forEach { (packageName, statsMinutes) ->
             val now = Clock.System.now().toEpochMilliseconds()
-            if (dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, statsMinutes, now)) == -1L) {
-                dailyUsageDao.raiseToAtLeast(packageName, date, statsMinutes, now)
+            val totalSeconds = statsMinutes * 60L
+            val existingSeconds = dailyUsageDao.getUsageSeconds(packageName, date)
+            if (existingSeconds == null) {
+                dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, totalSeconds, now))
+            } else if (existingSeconds < totalSeconds) {
+                dailyUsageDao.addDeltaSeconds(packageName, date, totalSeconds - existingSeconds, now)
             }
         }
     }
@@ -109,7 +121,7 @@ class ScreenTimeRepositoryImpl(
         dailyUsageDao.deleteBefore(date)
     }
 
-    private fun MonitoredAppEntity.toDomain(todayUsageMinutes: Long) =
+    private fun MonitoredAppEntity.toDomain(todayUsageSeconds: Long) =
         MonitoredApp(
             id = id,
             packageName = packageName,
@@ -118,6 +130,6 @@ class ScreenTimeRepositoryImpl(
             enabled = enabled,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            todayUsageMinutes = todayUsageMinutes,
+            todayUsageSeconds = todayUsageSeconds,
         )
 }

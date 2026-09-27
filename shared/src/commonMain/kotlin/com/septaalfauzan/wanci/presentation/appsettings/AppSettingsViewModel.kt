@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
  */
 data class AppSettingsUiState(
     val app: MonitoredApp? = null,
-    val usageMinutes: Long = 0,
+    val usageSeconds: Long = 0,
     val loading: Boolean = true,
     val error: Boolean = false,
     val missingArgument: Boolean = false,
@@ -100,7 +100,7 @@ data class AppSettingsUiState(
      * screens instead of two copies of one rule.
      */
     val row: DashboardAppRow?
-        get() = app?.let { dashboardRow(it.copy(todayUsageMinutes = usageMinutes)) }
+        get() = app?.let { dashboardRow(it.copy(todayUsageSeconds = usageSeconds)) }
 
     /**
      * Whether the settings body may be written at all.
@@ -117,27 +117,6 @@ data class AppSettingsUiState(
     /** The destructive action is only offered after the confirmation step has been opened. */
     val canConfirmRemove: Boolean
         get() = canToggleMonitoring && removeRequested && !removing
-}
-
-/**
- * A reading of recorded minutes in the words a person would use.
- *
- * Deliberately *not* [com.septaalfauzan.wanci.presentation.limit.formatLimitMinutes]: that one clamps
- * into `1..1440` because it formats a limit, and a limit of 0 minutes is a value the user cannot
- * store. A usage reading has the opposite shape — 0 minutes is the common case, and a day can
- * overrun its limit by more than 24 hours — so it is formatted here, without a clamp, and a negative
- * value is floored at zero rather than rendered as one.
- */
-internal fun formatUsageMinutes(minutes: Long): String {
-    val total = minutes.coerceAtLeast(0L)
-    val hours = total / 60
-    val rest = total % 60
-    val hourLabel = if (hours == 1L) "hour" else "hours"
-    return when {
-        hours == 0L -> "$rest min"
-        rest == 0L -> "$hours $hourLabel"
-        else -> "$hours $hourLabel $rest min"
-    }
 }
 
 /**
@@ -382,7 +361,7 @@ class AppSettingsViewModel(
                 val app = useCases.getMonitoredApp(packageName)
                 Triple(
                     app,
-                    useCases.getTodayUsage(packageName),
+                    useCases.getTodayUsageSeconds(packageName),
                     // Probed only for a row that exists: there is no device question to ask about an
                     // app Wanci is not watching, and the answer would be thrown away.
                     app?.let { installedAppCheck.isInstalled(it.packageName) },
@@ -405,7 +384,7 @@ class AppSettingsViewModel(
                     // nothing to retry, because the answer is not going to change on its own.
                     current.copy(
                         app = null,
-                        usageMinutes = 0,
+                        usageSeconds = 0,
                         loading = false,
                         error = false,
                         notMonitored = true,
@@ -413,7 +392,7 @@ class AppSettingsViewModel(
                 } else {
                     current.copy(
                         app = app.copy(installed = installed ?: app.installed),
-                        usageMinutes = usage,
+                        usageSeconds = usage,
                         loading = false,
                         error = false,
                         notMonitored = false,

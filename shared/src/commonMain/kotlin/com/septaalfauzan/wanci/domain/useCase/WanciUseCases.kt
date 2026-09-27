@@ -33,8 +33,8 @@ class WanciUseCases(
     suspend fun getMonitoredApp(packageName: String): MonitoredApp? =
         repository.getMonitoredApp(packageName)
 
-    suspend fun getTodayUsage(packageName: String): Long =
-        repository.getTodayUsage(packageName, todayKey.todayIso())
+    suspend fun getTodayUsageSeconds(packageName: String): Long =
+        repository.getTodayUsageSeconds(packageName, todayKey.todayIso())
 
     suspend fun putSyncValue(key: String, value: String) =
         repository.putSyncValue(key, value)

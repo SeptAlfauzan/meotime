@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.update
  * repository does: the monitored-app list already carries *today's* usage joined in (the real
  * implementation combines the app and `daily_usage` queries), and the usage flow is reactive
  * rather than a one-shot snapshot. Before that, `observeMonitoredApps` handed out rows whose
- * `todayUsageMinutes` was always the default `0`, so any test of a usage-reading screen would
+ * `todayUsageSeconds` was always the default `0`, so any test of a usage-reading screen would
  * have been asserting against a fake that could never produce usage.
  */
 class FakeRepository : ScreenTimeRepository {
@@ -39,14 +39,14 @@ class FakeRepository : ScreenTimeRepository {
 
     override fun observeMonitoredApps(): Flow<List<MonitoredApp>> =
         combine(apps, usage) { monitored, usageByPackage ->
-            monitored.map { it.copy(todayUsageMinutes = usageByPackage[it.packageName] ?: 0L) }
+            monitored.map { it.copy(todayUsageSeconds = usageByPackage[it.packageName] ?: 0L) }
         }
 
-    override fun observeTodayUsage(packageName: String): Flow<Long> =
+    override fun observeTodayUsageSeconds(packageName: String): Flow<Long> =
         usage.map { it[packageName] ?: 0L }
 
     override suspend fun getMonitoredApp(packageName: String): MonitoredApp? = app(packageName)
-    override suspend fun getTodayUsage(packageName: String, date: String): Long = usage.value[packageName] ?: 0L
+    override suspend fun getTodayUsageSeconds(packageName: String, date: String): Long = usage.value[packageName] ?: 0L
     override suspend fun addMonitoredApp(packageName: String, appName: String, dailyLimitMinutes: Int): Boolean {
         if (app(packageName) != null) return false
         apps.update {
@@ -79,10 +79,20 @@ class FakeRepository : ScreenTimeRepository {
     override suspend fun removeMonitoredApp(packageName: String) {
         apps.update { list -> list.filterNot { it.packageName == packageName } }
     }
-    override suspend fun recordUsage(packageName: String, deltaMinutes: Long, date: String) {
-        recorded += Triple(packageName, deltaMinutes, date)
-        usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaMinutes)) }
+    /**
+     * Makes [recordUsageSeconds] throw, so a test can prove that a failed write costs seconds
+     * rather than costing the *next* app its session. The real failure here is a Room error;
+     * what matters downstream is only that something was thrown from inside the core's close path.
+     */
+    var failOnRecord = false
+
+    override suspend fun recordUsageSeconds(packageName: String, deltaSeconds: Long, date: String) {
+        if (failOnRecord) throw IllegalStateException("simulated Room failure")
+        recorded += Triple(packageName, deltaSeconds, date)
+        usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaSeconds)) }
     }
+
+    /** In minutes, like the real implementation: this method is on its way out. */
     override suspend fun reconcileDailyUsage(deltaMinutesByPackage: Map<String, Long>, date: String) {
         deltaMinutesByPackage.forEach { (packageName, minutes) ->
             usage.update { it + (packageName to maxOf(it[packageName] ?: 0L, minutes)) }

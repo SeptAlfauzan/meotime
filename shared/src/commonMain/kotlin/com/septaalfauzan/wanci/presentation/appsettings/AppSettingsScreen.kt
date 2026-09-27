@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.septaalfauzan.wanci.presentation.dashboard.appStatusLabel
+import com.septaalfauzan.wanci.presentation.format.formatUsage
 import com.septaalfauzan.wanci.presentation.limit.formatLimitMinutes
 import com.septaalfauzan.wanci.presentation.theme.WanciButton
 import com.septaalfauzan.wanci.presentation.theme.WanciOutlinedButton
@@ -185,7 +186,7 @@ private fun AppSettingsContent(
             Spacer(Modifier.height(spacing.sm))
         }
 
-        AppSettingsStatRow(label = "Used today", value = formatUsageMinutes(state.usageMinutes))
+        AppSettingsStatRow(label = "Used today", value = formatUsage(state.usageSeconds))
         AppSettingsStatRow(label = "Daily limit", value = formatLimitMinutes(state.limitMinutes))
         if (row != null) {
             AppSettingsStatRow(label = "Status", value = appStatusLabel(row), emphasised = true)

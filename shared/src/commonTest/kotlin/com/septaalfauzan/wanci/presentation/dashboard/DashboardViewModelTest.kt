@@ -70,13 +70,13 @@ class DashboardViewModelTest {
     @Test
     fun exposesTodayUsageAndUninstalledFlag() = runTest {
         repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
-        repository.recordUsage("com.instagram.android", 42, "2026-09-25")
+        repository.recordUsageSeconds("com.instagram.android", 42, "2026-09-25")
         repository.addMonitoredApp("com.example.gone", "Gone App", 60)
 
         val state = newViewModel { it != "com.example.gone" }.state.value
 
         assertEquals(2, state.apps.size)
-        assertEquals(42L, state.apps.first().todayUsageMinutes)
+        assertEquals(42L, state.apps.first().todayUsageSeconds)
         assertTrue(state.apps.first().installed)
         assertFalse(state.apps.last().installed)
     }
@@ -94,26 +94,26 @@ class DashboardViewModelTest {
     fun usageUpdatesLiveWhileTheServiceRecordsIt() = runTest {
         repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
         val viewModel = newViewModel()
-        assertEquals(0L, viewModel.state.value.apps.first().todayUsageMinutes)
+        assertEquals(0L, viewModel.state.value.apps.first().todayUsageSeconds)
 
-        repository.recordUsage("com.instagram.android", 7, "2026-09-25")
+        repository.recordUsageSeconds("com.instagram.android", 7, "2026-09-25")
 
-        assertEquals(7L, viewModel.state.value.apps.first().todayUsageMinutes)
+        assertEquals(7L, viewModel.state.value.apps.first().todayUsageSeconds)
         assertFalse(viewModel.state.value.loading)
     }
 
     @Test
     fun midnightRolloverResetsUsageToZero() = runTest {
         repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
-        repository.recordUsage("com.instagram.android", 42, "2026-09-25")
+        repository.recordUsageSeconds("com.instagram.android", 42, "2026-09-25")
         val viewModel = newViewModel()
-        assertEquals(42L, viewModel.state.value.apps.first().todayUsageMinutes)
+        assertEquals(42L, viewModel.state.value.apps.first().todayUsageSeconds)
 
         // Stands in for the real repository re-querying `daily_usage` for the new date when
         // `TodayKey.dateFlow()` emits past midnight (covered by ScreenTimeRepositoryImplTest).
         repository.rollOverToNewDay()
 
-        assertEquals(0L, viewModel.state.value.apps.first().todayUsageMinutes)
+        assertEquals(0L, viewModel.state.value.apps.first().todayUsageSeconds)
     }
 
     @Test
@@ -216,7 +216,7 @@ class DashboardViewModelTest {
     @Test
     fun refreshKeepsAPopulatedListOnScreenWhileItReReads() = runTest {
         repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
-        repository.recordUsage("com.instagram.android", 42, "2026-09-25")
+        repository.recordUsageSeconds("com.instagram.android", 42, "2026-09-25")
         val viewModel = newViewModel()
 
         viewModel.refresh()
@@ -225,7 +225,7 @@ class DashboardViewModelTest {
         assertFalse(state.loading)
         assertFalse(state.error)
         assertEquals(1, state.apps.size)
-        assertEquals(42L, state.apps.first().todayUsageMinutes)
+        assertEquals(42L, state.apps.first().todayUsageSeconds)
     }
 
     @Test
@@ -237,6 +237,30 @@ class DashboardViewModelTest {
         assertTrue(viewModel.state.value.loading)
     }
 
+    @Test
+    fun dashboardRowComparesSecondsAgainstAMinuteLimitWithoutDividingBySixty() {
+        // Deliberately not routed through the `app(...)` helper, which takes minutes. The other
+        // ten dashboardRow cases use whole-minute fixtures and would pass even with the
+        // conversion missing; this one is the only thing standing between a silent 60x error and
+        // a shipped row that reads "limit reached" for an app at 29m30s.
+        val row = dashboardRow(
+            MonitoredApp(
+                id = 1,
+                packageName = "com.instagram.android",
+                appName = "Instagram",
+                dailyLimitMinutes = 30,
+                enabled = true,
+                createdAt = 0,
+                updatedAt = 0,
+                todayUsageSeconds = 1_770L,
+            ),
+        )
+
+        assertTrue(!row.limitReached, "29m30s against a 30m limit is not over the limit")
+        assertEquals(0L, row.remainingMinutes, "the half-minute left rounds down to no minutes")
+        assertTrue(row.progress < 1f, "the bar must not be full at 29m30s")
+    }
+
     private fun app(usageMinutes: Long, limitMinutes: Int, enabled: Boolean = true) = MonitoredApp(
         id = 1,
         packageName = "com.instagram.android",
@@ -245,6 +269,9 @@ class DashboardViewModelTest {
         enabled = enabled,
         createdAt = 0,
         updatedAt = 0,
-        todayUsageMinutes = usageMinutes,
+        // The helper speaks minutes because that is how these fixtures read; the model speaks
+        // seconds because that is what is stored. Converting here keeps sixteen call sites
+        // unchanged and honest at the same time.
+        todayUsageSeconds = usageMinutes * 60,
     )
 }
