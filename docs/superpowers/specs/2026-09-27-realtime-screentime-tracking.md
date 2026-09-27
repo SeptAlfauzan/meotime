@@ -183,7 +183,27 @@ val usage = app.todayUsageSeconds
 
 ### Formatting
 
-Three screens print usage — `DashboardScreen.kt:154`, `AppSettingsScreen`, and the overlay. A single shared `formatUsage(seconds)` in the presentation layer renders `"0m"`, `"0m 08s"`, `"12m"`, `"1h 04m"` and is used by all three, rather than each doing its own seconds-to-minutes division.
+Three screens print usage — `DashboardScreen.kt:154`, `AppSettingsScreen.kt:188`, and the overlay. There is already a formatter for this, `formatUsageMinutes` at `AppSettingsViewModel.kt:131`, so it is **moved and repurposed** rather than replaced by a competing one. It keeps the app's established word style (`"5 min"`, `"1 hour"`, `"1 hour 5 min"`) rather than the abbreviated style this spec originally proposed, because the abbreviated form would be the only place in the UI not speaking in the same register as its neighbours.
+
+Its input becomes seconds, and it gains the one case that second precision makes reachable — a reading under a minute, which the old minute-based input could not express:
+
+```kotlin
+fun formatUsage(seconds: Long): String {
+    val total = seconds.coerceAtLeast(0L)
+    if (total < 60L) return "$total sec"
+    val minutes = total / 60
+    val hours = minutes / 60
+    val restMinutes = minutes % 60
+    val hourLabel = if (hours == 1L) "hour" else "hours"
+    return when {
+        hours == 0L -> "$minutes min"
+        restMinutes == 0L -> "$hours $hourLabel"
+        else -> "$hours $hourLabel $restMinutes min"
+    }
+}
+```
+
+It lives in its own file, `presentation/format/UsageFormat.kt`, so the overlay — which is in the overlay package and has no business importing a view model to render a number — can use it. The existing clamping rationale in its KDoc carries over: deliberately not `formatLimitMinutes`, which clamps into `1..1440` because it formats a limit.
 
 ## Flow
 
@@ -247,7 +267,22 @@ The `elapsed > 0` guard in step 1 discards only sessions shorter than one second
 
 Everything reaches the overlay through `onOverlayDecision`; `onForegroundChange` returns `Unit`. The current code has two delivery mechanisms — a return value the service checks, and a callback the ticker uses — and unifying them removes the service's `decision != null` branch.
 
-This requires reordering `onDestroy` in `MonitoringAccessibilityService`: `enqueueForegroundChange(null)` must run **before** `overlayManager.dismiss()`, so the ticker is cancelled under the mutex before the view is removed. The current order is reversed, which under unified delivery would let an in-flight tick re-add the overlay after it was dismissed.
+This requires a synchronous teardown path on the core. `onDestroy` cannot wait for a coroutine, and `enqueueForegroundChange` launches on the IO scope, so reordering the two calls in `onDestroy` would only queue the session close and still race an in-flight tick. Instead the core gains two non-suspending methods:
+
+```kotlin
+fun attach() { detached = false }
+
+fun detach() {
+    tickJob?.cancel()
+    tickJob = null
+    currentSession = null
+    detached = true
+}
+```
+
+`detach()` cancels the ticker **before returning**, so once it returns no tick can fire and the caller may safely remove the overlay. `onDestroy` becomes `core.detach()` then `overlayManager.dismiss()`, both synchronous, order guaranteed by program order rather than by a coroutine boundary. The open session's unpersisted seconds are dropped, which is exactly the loss already accepted for a process death (Decision 10) — the two paths now fail identically instead of one of them racing.
+
+`onForegroundChange` returns immediately while detached. The core is a process-wide singleton in `AppContainer`, and Android can reconnect the accessibility service to the same process, so `onServiceConnected` calls `attach()` to make `detach()` reversible rather than terminal.
 
 ### Why the ticker can stop while accrual continues
 
@@ -334,9 +369,10 @@ Whether the overlay window itself produces a `TYPE_WINDOW_STATE_CHANGED` event a
 - `FakeRepository` gains the seconds API plus a `failOnRecord` toggle for test 11.
 - `LimitCheckerTest` moves to the seconds boundary: `exceeds(1799, 1800)` false, `exceeds(1800, 1800)` true.
 - `ScreenTimeRepositoryImplTest` renames to seconds; its two `reconcileDailyUsage` tests are deleted.
-- `formatUsage` gets a commonTest table test: `0 → "0m"`, `8 → "0m 08s"`, `720 → "12m"`, `3840 → "1h 04m"`.
-- `DashboardViewModelTest` and `AppSettingsViewModelTest` move from raw minute counts to the formatted string, and `dashboardRow` gains a case at a non-zero second offset — an app at 29m30s against a 30m limit must report `limitReached = false`, `progress` just under `1f`, and `remainingMinutes = 0`. This is the test that catches the 60× bug in `dashboardRow`; a whole-minute fixture would pass even with the conversion missing.
-- `OverlayScreen` gets a composable test asserting the formatted text and that both buttons invoke their callbacks.
+- `formatUsage` gets a commonTest table test: `0 → "0 sec"`, `45 → "45 sec"`, `60 → "1 min"`, `720 → "12 min"`, `3660 → "1 hour 1 min"`, `3840 → "1 hour 4 min"`.
+- `DashboardViewModelTest`'s existing `app(usageMinutes, limitMinutes)` helper converts to seconds on the way into the model, which keeps its ~16 call sites and their assertions unchanged. One new case bypasses the helper with `todayUsageSeconds = 1_770` against a 30-minute limit: every existing fixture is a whole number of minutes and would pass even with the seconds conversion missing, so that one case is the only thing standing between a silent 60× error and a row that reads "limit reached" at 29m30s.
+- `OverlayScreen` gets **no** automated test. `commonTest` depends only on `kotlin.test` and `kotlinx-coroutines-test`, there is no Compose UI test artifact in the version catalog, and no composable in this project has ever been rendered in a test. Adding a test dependency for two static strings is not worth it; the argument wiring is verified by hand instead. The logic that formatting *does* have is covered by the `formatUsage` table test.
+
 
 ### Migration test
 
@@ -361,7 +397,7 @@ Steps 1 and 2 are where a compile error is expected and harmless. A step 5 regre
 
 | File | Change |
 |---|---|
-| `shared/.../monitoring/MonitoringCore.kt` | Rewrite around `Session`; delete the map, dedupe set, and timer API |
+| `shared/.../monitoring/MonitoringCore.kt` | Rewrite around `Session`; delete the map, dedupe set, and timer API; add `attach` / `detach` |
 | `shared/.../monitoring/MonotonicClock.kt` | **New** |
 | `shared/.../monitoring/LimitChecker.kt` | Seconds boundary |
 | `shared/.../data/local/WanciDatabase.kt` | `version = 2`, `exportSchema = true` |
@@ -373,7 +409,7 @@ Steps 1 and 2 are where a compile error is expected and harmless. A step 5 regre
 | `shared/.../domain/model/MonitoredApp.kt` | `todayUsageSeconds` |
 | `shared/.../domain/useCase/WanciUseCases.kt` | Rename the usage accessor |
 | `shared/.../presentation/dashboard/DashboardViewModel.kt` | `dashboardRow` converts to seconds before comparing |
-| `shared/.../presentation/appsettings/AppSettingsViewModel.kt` | Seconds state field feeding `dashboardRow` |
+| `shared/.../presentation/appsettings/AppSettingsViewModel.kt` | `formatUsageMinutes` moves out; seconds state field feeding `dashboardRow` |
 | `shared/.../presentation/format/UsageFormat.kt` | **New** — `formatUsage` |
 | `shared/.../presentation/overlay/OverlayScreen.kt` | `formatUsage` text |
 | `shared/.../presentation/dashboard/DashboardScreen.kt` | `formatUsage` text |
@@ -383,7 +419,7 @@ Steps 1 and 2 are where a compile error is expected and harmless. A step 5 regre
 | `shared/build.gradle.kts` | `room.schemaLocation` KSP arg; commit `schemas/` |
 | `androidApp/.../AppContainer.kt` | Bind `MonotonicClock`; drop `usageStatsReader`; run the prune |
 | `androidApp/.../WanciApplication.kt` | 7-day prune on cold start |
-| `androidApp/.../monitoring/MonitoringAccessibilityService.kt` | Delete the reconcile loop; drop the `eventTime` parameter; reorder `onDestroy` |
+| `androidApp/.../monitoring/MonitoringAccessibilityService.kt` | Delete the reconcile loop; drop the `eventTime` parameter; `attach()` / `detach()` around the service lifetime |
 | `androidApp/.../monitoring/OverlayManager.kt` | Drop core/mutex/scope; BACK → `leaveApp()`; log `addView` failure |
 | `androidApp/.../monitoring/UsageStatsReader.kt` | **Deleted** |
 | `shared/src/commonTest/.../FakeRepository.kt` | Seconds API, `failOnRecord` |
