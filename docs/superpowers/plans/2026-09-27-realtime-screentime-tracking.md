@@ -15,6 +15,7 @@
 - **Tasks 1, 2 and 6 are one unit of work and land as one commit.** They are numbered and ordered as written because that is the order they must be *performed* in, but they are performed by a single implementer and reviewed as a single change. Do not commit at the end of Task 1 or Task 2. The tree genuinely does not compile partway through — a caller is always one rename behind — and that is acceptable only because nothing broken is ever committed. The unit's commit is the one at the end of Task 6, and it must compile and pass the full suite before it is made. A green tree after every commit is worth more here than a green tree after every task.
 - **Tasks 3, 4 and 5 are likewise one unit and one commit**, for a different reason: `MonitoringCore` gains a required `clock` parameter and `OverlayManager` loses its reference to the core, so `androidApp` cannot compile until both ends of that change exist. Task 3's gate is the shared suite, which stays green throughout — a passing `:shared:testAndroidHostTest` is explicitly *not* a sufficient signal that this unit is committable. The unit's commit is the one at the end of Task 5 and requires `assembleDebug` to succeed first.
 - Net effect: three code commits, each green — the rename unit, the realtime unit, and Task 7's overlay text on its own.
+- **The rename unit must shim `MonitoringCore`, not rewrite it.** After the repository is renamed, `MonitoringCore` would be handed seconds and would compare them against `dailyLimitMinutes` through a minutes-denominated `LimitChecker`, making every limit 60× more permissive — silently, with the overlay still appearing on schedule relative to the new scale. Task 2 Step 6 converts back at those two call sites so the commit preserves existing behaviour exactly, and Task 3 deletes the shim. Likewise `reconcileDailyUsage` survives the rename unit in minutes, because `UsageStatsReader` is its only caller and is not touched until Task 4; the two die together there.
 - **The rename and the dashboard arithmetic must not be separable commits.** Once the domain model speaks seconds and the limit is still authored in minutes, `dashboardRow` is wrong by 60× while still compiling and while every existing test still passes — because all sixteen of its fixtures are whole minutes. That is a worse defect than a build break, so the conversion and the rename land together or not at all.
 - `minSdk` is **28** and `compileSdk`/`targetSdk` are **37**. `ALTER TABLE ... DROP COLUMN` requires SQLite 3.35 (API 30) and is therefore **unavailable** — the migration must use the create-copy-drop-rename rebuild.
 - `room { schemaDirectory("$projectDir/schemas") }` is **already configured** at `shared/build.gradle.kts:74-76`. Do not add a `room.schemaLocation` KSP argument; only `exportSchema` needs flipping.
@@ -301,13 +302,17 @@ This is the first third of the rename unit (see Global Constraints). `git add` n
 
 ---
 
-### Task 2: Repository speaks seconds, and reconcile is gone
+### Task 2: Repository speaks seconds, with the monitoring call sites shimmed
 
 **Files:**
 - Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepository.kt:4-21`
 - Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImpl.kt`
 - Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt`
 - Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImplTest.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt` — **call sites only**, lines 35, 61, 114
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt` — **call sites only**, lines 94, 115
+
+`MonitoringCore` and its test are in this task's file list for a narrow reason, explained in Step 6. Task 3 rewrites both files in full; this task only keeps them compiling.
 
 **Interfaces:**
 - Consumes: `DailyUsageDao.getUsageSeconds` / `addDeltaSeconds` / `insertOrIgnore` from Task 1.
@@ -316,12 +321,12 @@ This is the first third of the rename unit (see Global Constraints). `git add` n
   - `suspend fun recordUsageSeconds(packageName: String, deltaSeconds: Long, date: String)`
   - `fun observeTodayUsageSeconds(packageName: String): Flow<Long>`
   - `suspend fun deleteUsageBefore(date: String)` (unchanged signature, new caller in Task 4)
-  - `reconcileDailyUsage` is **gone**.
+  - `reconcileDailyUsage` **stays on the interface, in minutes**, and dies in Task 4 together with `UsageStatsReader`. See Step 4.
   - `FakeRepository.failOnRecord: Boolean` — when true, `recordUsageSeconds` throws. Used by Task 3's test 11.
 
-- [ ] **Step 1: Update the repository test to seconds and delete the reconcile cases**
+- [ ] **Step 1: Update the repository test to seconds**
 
-In `ScreenTimeRepositoryImplTest.kt`, delete `reconcileDailyUsageNeverLowersAnExistingTotal` (it tests a method that no longer exists) and rename the remaining `recordUsage`/`getTodayUsage` calls to the new names. Change `42L` to `42L` — the numbers stay the same, only the unit label changes, because the fake treats them as opaque. The prune test keeps its shape:
+In `ScreenTimeRepositoryImplTest.kt`, **keep** `reconcileDailyUsageNeverLowersAnExistingTotal` — reconcile still exists after this task, in minutes, and Task 4 is what deletes it. Rename the `recordUsage`/`getTodayUsage` calls to the new names. Change `42L` to `42L` — the numbers stay the same, only the unit label changes, because the fake treats them as opaque. The prune test keeps its shape:
 
 ```kotlin
     @Test
@@ -388,11 +393,18 @@ interface ScreenTimeRepository {
     }
 ```
 
-Delete `reconcileDailyUsage` entirely (lines 87-97). Rename the `toDomain` parameter to `todayUsageSeconds`.
+Rename the `toDomain` parameter to `todayUsageSeconds`.
+
+Leave `reconcileDailyUsage` (lines 87-97) on the interface and in the implementation, but convert at its boundary so it keeps meaning what it meant before this task, in minutes:
+
+- `addDelta(deltaMinutes * 60L)`
+- `raiseToAtLeast(max(existingSeconds, totalMinutes * 60L))`
+
+`UsageStatsReader` is the only caller and it is not touched until Task 4, so leaving this method in minutes is what keeps `androidApp` compiling. The unit is converted here rather than left as raw seconds precisely so that nothing outside `androidApp` starts reading a second-denominated number as though it were minutes.
 
 - [ ] **Step 5: Update the fake**
 
-In `FakeRepository.kt`, rename the three usage methods to match, delete `reconcileDailyUsage`, change the `apps` combine to set `todayUsageSeconds`, and add the failure toggle:
+In `FakeRepository.kt`, rename the three usage methods to match, **keep** `reconcileDailyUsage` in minutes, change the `apps` combine to set `todayUsageSeconds`, and add the failure toggle:
 
 ```kotlin
     /**
@@ -409,13 +421,27 @@ In `FakeRepository.kt`, rename the three usage methods to match, delete `reconci
     }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 6: Shim the two monitoring call sites so the tree compiles**
+
+`MonitoringCore` reads usage and compares it against `app.dailyLimitMinutes` through `LimitChecker.exceeds(usageMinutes, limitMinutes)`. After the rename it would be handed **seconds** and would compare them to a **minute-denominated** limit — making every limit 60× more permissive, silently, with the overlay still appearing on time relative to the new scale. That is the same class of bug Task 6 exists to prevent, so it cannot be allowed to stand even for one commit.
+
+Convert back at the call site and change nothing else in this task. `MonitoringCore.kt` lines 35, 61, 114:
+
+- line 35, the usage read: `repository.getTodayUsageSeconds(packageName, todayIso()) / 60L`
+- line 61, the limit comparison: unchanged, still minutes on both sides
+- line 114, the write: `repository.recordUsageSeconds(packageName, deltaMinutes * 60L, todayIso())`
+
+`MonitoringCoreTest.kt` lines 94 and 115: rename `r.recordUsage(...)` to `r.recordUsageSeconds(...)` and multiply the delta by 60 so the assertions still describe the same number of minutes they did before.
+
+The result is a commit in which stored data is in seconds, every existing behaviour is bit-for-bit what it was, and `MonitoringCore` is exactly as imperfect as it was. Task 3 then rewrites both files properly and deletes the shim. Do not improve `MonitoringCore` here — Task 3 owns it, and a partial improvement here is what creates the 60× regression.
+
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `./gradlew :shared:testAndroidHostTest --tests '*ScreenTimeRepositoryImplTest*' --tests '*WanciDatabaseTest*'`
 
 Expected: PASS. The domain-model rename lands in Task 6, so expect *compile* errors in `MonitoredApp.kt` and the presentation layer until then — those are expected and are not this task's to fix. If they block the test run, comment nothing out; just confirm the failures are all `todayUsageMinutes` / `observeTodayUsage` / `getTodayUsage` name errors and continue.
 
-- [ ] **Step 7: Do not commit**
+- [ ] **Step 8: Do not commit**
 
 Second third of the rename unit. `git add` nothing. Continue to Task 6, which finishes the rename, restores the build, and makes the one commit for all three tasks.
 
@@ -981,7 +1007,21 @@ class MonitoringCore(
 
 Note `detached` starts `true`. The core does nothing until something calls [attach], which is the safe default for a singleton constructed at app start but not yet owned by a running service.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 6: Shim the two monitoring call sites so the tree compiles**
+
+`MonitoringCore` reads usage and compares it against `app.dailyLimitMinutes` through `LimitChecker.exceeds(usageMinutes, limitMinutes)`. After the rename it would be handed **seconds** and would compare them to a **minute-denominated** limit — making every limit 60× more permissive, silently, with the overlay still appearing on time relative to the new scale. That is the same class of bug Task 6 exists to prevent, so it cannot be allowed to stand even for one commit.
+
+Convert back at the call site and change nothing else in this task. `MonitoringCore.kt` lines 35, 61, 114:
+
+- line 35, the usage read: `repository.getTodayUsageSeconds(packageName, todayIso()) / 60L`
+- line 61, the limit comparison: unchanged, still minutes on both sides
+- line 114, the write: `repository.recordUsageSeconds(packageName, deltaMinutes * 60L, todayIso())`
+
+`MonitoringCoreTest.kt` lines 94 and 115: rename `r.recordUsage(...)` to `r.recordUsageSeconds(...)` and multiply the delta by 60 so the assertions still describe the same number of minutes they did before.
+
+The result is a commit in which stored data is in seconds, every existing behaviour is bit-for-bit what it was, and `MonitoringCore` is exactly as imperfect as it was. Task 3 then rewrites both files properly and deletes the shim. Do not improve `MonitoringCore` here — Task 3 owns it, and a partial improvement here is what creates the 60× regression.
+
+- [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `./gradlew :shared:testAndroidHostTest --tests '*MonitoringCoreTest*' --tests '*LimitCheckerTest*'`
 
@@ -991,7 +1031,7 @@ Expected: PASS, all 14.
 
 Run: `./gradlew :shared:testAndroidHostTest`
 
-Expected: failures are limited to unresolved `todayUsageMinutes` / `observeTodayUsage` in the presentation layer, which Task 6 fixes. Any failure in `MonitoringCoreTest`, `LimitCheckerTest`, `ScreenTimeRepositoryImplTest`, or `WanciDatabaseTest` is a real regression — fix it before committing.
+Expected: PASS, the whole suite. The rename unit (Tasks 1, 2 and 6) already restored a green tree, so there is nothing to forgive here — any failure at all is a real regression. The minutes-denominated shim Task 2 left in `MonitoringCore` is what this task replaces, so `MonitoringCoreTest` is expected to be rewritten wholesale rather than adjusted.
 
 - [ ] **Step 8: Do not commit**
 
@@ -1008,6 +1048,12 @@ No tests are possible here — `androidApp/src` has only `main`. The gate is com
 - Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/WanciApplication.kt`
 - Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringAccessibilityService.kt`
 - Delete: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/UsageStatsReader.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepository.kt` — delete `reconcileDailyUsage`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImpl.kt` — delete its body
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt` — delete its fake
+- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImplTest.kt` — delete `reconcileDailyUsageNeverLowersAnExistingTotal`
+
+`UsageStatsReader` is the only reason `reconcileDailyUsage` still exists: Task 2 kept it alive, in minutes, precisely so that `androidApp` would keep compiling. Deleting the reader and its one call is therefore a single act, and it belongs here rather than in Task 2 where the method was renamed out from under it.
 
 **Interfaces:**
 - Consumes: `MonitoringCore(repository, todayKey, selfPackageName, clock, scope, onOverlayDecision, tickIntervalMillis)`, `attach()`, `detach()` from Task 3; `deleteUsageBefore(date)` from Task 2.
@@ -1172,13 +1218,24 @@ class MonitoringAccessibilityService : AccessibilityService() {
 
 Delete `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/UsageStatsReader.kt` and the now-unused `SystemClock` import.
 
-- [ ] **Step 4: Verify it compiles**
+- [ ] **Step 4: Delete `reconcileDailyUsage` and its test**
+
+Now that `UsageStatsReader.kt` is gone, nothing calls `reconcileDailyUsage` and the method Task 2 kept alive in minutes has no reason to exist. Remove it from all four places:
+
+- `ScreenTimeRepository.kt` — the interface declaration
+- `ScreenTimeRepositoryImpl.kt` — the body, lines 87-97
+- `FakeRepository.kt` — the fake's implementation
+- `ScreenTimeRepositoryImplTest.kt` — `reconcileDailyUsageNeverLowersAnExistingTotal`
+
+Do not leave a deprecated stub. It would compile, it would be untested, and it would be a second way to write usage totals sitting next to the one live path — which is exactly the drift this whole change exists to remove.
+
+- [ ] **Step 5: Verify it compiles**
 
 Run: `./gradlew :androidApp:assembleDebug`
 
 Expected: compile errors in `OverlayManager.kt` only — it still passes `core` and `coreMutex` to a constructor that no longer wants them. That is Task 5. Confirm there are no other errors, then continue.
 
-- [ ] **Step 5: Do not commit**
+- [ ] **Step 6: Do not commit**
 
 Second third of the realtime unit. `git add` nothing. Continue to Task 5, which is the step that finally lets `androidApp` compile and which makes the unit's single commit.
 
@@ -1541,6 +1598,7 @@ git add shared/schemas \
         shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local \
         shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository \
         shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain \
+        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring \
         shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation \
         shared/src/commonTest/kotlin/com/septaalfauzan/wanci \
         shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci
