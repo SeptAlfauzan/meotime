@@ -92,10 +92,15 @@ class FakeRepository : ScreenTimeRepository {
         usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaSeconds)) }
     }
 
-    /** In minutes, like the real implementation: this method is on its way out. */
+    /**
+     * Minutes in, seconds into [usage] — the same conversion the real implementation performs, so
+     * a test that drives this fake and a test that drives the real repository over a real database
+     * read the same number back. [usage] is the map [recordUsageSeconds] accumulates into, and it
+     * is second-denominated like the store.
+     */
     override suspend fun reconcileDailyUsage(deltaMinutesByPackage: Map<String, Long>, date: String) {
         deltaMinutesByPackage.forEach { (packageName, minutes) ->
-            usage.update { it + (packageName to maxOf(it[packageName] ?: 0L, minutes)) }
+            usage.update { it + (packageName to maxOf(it[packageName] ?: 0L, minutes * 60L)) }
         }
     }
     override suspend fun getSyncValue(key: String): String? = syncValues[key]

@@ -91,10 +91,17 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
  *
  * "Limit reached" is checked first, and stays the answer for a paused app that had already reached
  * its limit when it was paused: that is a real reading, and the usage beside it is still true.
+ *
+ * [DashboardAppRow.remainingMinutes] is minute-denominated, so second-granularity storage makes a
+ * sub-minute remainder floor to zero — a state that was unreachable while usage was whole minutes,
+ * because zero then implied the limit had been reached and the first branch answered instead.
  */
 internal fun appStatusLabel(row: DashboardAppRow): String = when {
     row.limitReached -> "Limit reached"
     row.paused -> "Monitoring paused"
+    // Under the limit with less than a minute left. "0 minutes remaining" is not a thing anyone
+    // has ever said, and rounding the row up would claim a minute the user does not have.
+    row.remainingMinutes == 0L -> "Less than a minute remaining"
     row.remainingMinutes == 1L -> "1 minute remaining"
     else -> "${row.remainingMinutes} minutes remaining"
 }

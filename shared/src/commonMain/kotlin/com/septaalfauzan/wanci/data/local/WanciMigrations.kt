@@ -14,8 +14,10 @@ package com.septaalfauzan.wanci.data.local
  *
  * The statements, not the `Migration`, are what lives here: Room's `migrate` takes a
  * `SupportSQLiteDatabase` on Android and an `SQLiteConnection` on native, so the object cannot
- * be common. Both platforms expose the same `execSQL(String)`, which is the only thing these
- * need in common.
+ * be common. Both platforms take a plain `String` statement, which is the only thing these need
+ * in common — but on Android `execSQL` is a member of `SupportSQLiteDatabase` while on native it
+ * is an *extension* in package `androidx.sqlite`, so the native shell needs
+ * `import androidx.sqlite.execSQL` or `execSQL` does not resolve.
  */
 internal val MIGRATION_1_2_SQL: List<String> = listOf(
     """

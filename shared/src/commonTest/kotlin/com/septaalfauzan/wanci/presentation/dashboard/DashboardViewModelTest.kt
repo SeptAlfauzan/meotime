@@ -191,7 +191,7 @@ class DashboardViewModelTest {
 
     /**
      * The wording is one function for the two screens that report the same row — the dashboard list
-     * and the app's own settings page — so all four branches are pinned here. A fifth copy of this
+     * and the app's own settings page — so every branch is pinned here. A further copy of this
      * mapping in a screen is how the list and the settings page start describing the same app
      * differently.
      */
@@ -210,6 +210,17 @@ class DashboardViewModelTest {
         assertEquals(
             "Limit reached",
             appStatusLabel(dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false))),
+        )
+        // The sub-minute states, which need seconds to express. A paused app's remaining time is
+        // zero by construction, so the zero branch has to sit below `paused` or every paused row
+        // would start claiming to have under a minute left of a budget nothing is spending.
+        assertEquals(
+            "Less than a minute remaining",
+            appStatusLabel(dashboardRow(appAtSeconds(usageSeconds = 1_770L, limitMinutes = 30))),
+        )
+        assertEquals(
+            "Monitoring paused",
+            appStatusLabel(dashboardRow(appAtSeconds(usageSeconds = 1_770L, limitMinutes = 30, enabled = false))),
         )
     }
 
@@ -256,7 +267,7 @@ class DashboardViewModelTest {
             ),
         )
 
-        assertTrue(!row.limitReached, "29m30s against a 30m limit is not over the limit")
+        assertFalse(row.limitReached, "29m30s against a 30m limit is not over the limit")
         assertEquals(0L, row.remainingMinutes, "the half-minute left rounds down to no minutes")
         assertTrue(row.progress < 1f, "the bar must not be full at 29m30s")
     }
@@ -273,5 +284,21 @@ class DashboardViewModelTest {
         // seconds because that is what is stored. Converting here keeps sixteen call sites
         // unchanged and honest at the same time.
         todayUsageSeconds = usageMinutes * 60,
+    )
+
+    /**
+     * [app] speaks minutes and so cannot express a sub-minute remainder — the one row state that
+     * second-granularity storage makes reachable, and the only place the minute-denominated
+     * `remainingMinutes` can read as zero without the limit having been reached.
+     */
+    private fun appAtSeconds(usageSeconds: Long, limitMinutes: Int, enabled: Boolean = true) = MonitoredApp(
+        id = 1,
+        packageName = "com.instagram.android",
+        appName = "Instagram",
+        dailyLimitMinutes = limitMinutes,
+        enabled = enabled,
+        createdAt = 0,
+        updatedAt = 0,
+        todayUsageSeconds = usageSeconds,
     )
 }

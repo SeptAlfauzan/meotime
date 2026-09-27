@@ -13,6 +13,16 @@ class UsageFormatTest {
     }
 
     @Test
+    fun doesNotClampADayThatOverranItsLimit() {
+        // The no-clamp invariant. A day can overrun its limit by more than 24 hours, and a
+        // formatter that clamped into 1..1440 the way formatLimitMinutes does would render a
+        // 25-hour day as "24 hours" — a wrong number, in the one place the user is reading their
+        // own usage back.
+        assertEquals("25 hours", formatUsage(90_000L))
+        assertEquals("25 hours 1 min", formatUsage(90_060L))
+    }
+
+    @Test
     fun formatsMinutesAndHours() {
         assertEquals("1 min", formatUsage(60L))
         assertEquals("12 min", formatUsage(720L))
