@@ -12,6 +12,10 @@
 
 ## Global Constraints
 
+- **Tasks 1, 2 and 6 are one unit of work and land as one commit.** They are numbered and ordered as written because that is the order they must be *performed* in, but they are performed by a single implementer and reviewed as a single change. Do not commit at the end of Task 1 or Task 2. The tree genuinely does not compile partway through — a caller is always one rename behind — and that is acceptable only because nothing broken is ever committed. The unit's commit is the one at the end of Task 6, and it must compile and pass the full suite before it is made. A green tree after every commit is worth more here than a green tree after every task.
+- **Tasks 3, 4 and 5 are likewise one unit and one commit**, for a different reason: `MonitoringCore` gains a required `clock` parameter and `OverlayManager` loses its reference to the core, so `androidApp` cannot compile until both ends of that change exist. Task 3's gate is the shared suite, which stays green throughout — a passing `:shared:testAndroidHostTest` is explicitly *not* a sufficient signal that this unit is committable. The unit's commit is the one at the end of Task 5 and requires `assembleDebug` to succeed first.
+- Net effect: three code commits, each green — the rename unit, the realtime unit, and Task 7's overlay text on its own.
+- **The rename and the dashboard arithmetic must not be separable commits.** Once the domain model speaks seconds and the limit is still authored in minutes, `dashboardRow` is wrong by 60× while still compiling and while every existing test still passes — because all sixteen of its fixtures are whole minutes. That is a worse defect than a build break, so the conversion and the rename land together or not at all.
 - `minSdk` is **28** and `compileSdk`/`targetSdk` are **37**. `ALTER TABLE ... DROP COLUMN` requires SQLite 3.35 (API 30) and is therefore **unavailable** — the migration must use the create-copy-drop-rename rebuild.
 - `room { schemaDirectory("$projectDir/schemas") }` is **already configured** at `shared/build.gradle.kts:74-76`. Do not add a `room.schemaLocation` KSP argument; only `exportSchema` needs flipping.
 - The database is created on **both** platforms via `Room.databaseBuilder`. Neither registers any migration today, so an unregistered migration means a silent destructive wipe on upgrade. Both must call `.addMigrations(MIGRATION_1_2)`.
@@ -291,15 +295,9 @@ Run: `./gradlew :shared:testAndroidHostTest --tests '*WanciDatabaseTest*'`
 
 Expected: PASS. `shared/schemas/` now exists on disk with a `2.json`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Do not commit**
 
-```bash
-git add shared/schemas shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local \
-        shared/src/androidMain/kotlin/com/septaalfauzan/wanci/data/local \
-        shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local \
-        shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/local
-git commit -m "feat: store screen time in seconds with a data-preserving migration"
-```
+This is the first third of the rename unit (see Global Constraints). `git add` nothing yet. Run `git status`, confirm the expected files are modified, and continue to Task 2.
 
 ---
 
@@ -415,16 +413,11 @@ In `FakeRepository.kt`, rename the three usage methods to match, delete `reconci
 
 Run: `./gradlew :shared:testAndroidHostTest --tests '*ScreenTimeRepositoryImplTest*' --tests '*WanciDatabaseTest*'`
 
-Expected: PASS. The domain-model rename lands in Task 5, so expect *compile* errors in `MonitoredApp.kt` and the presentation layer until then — those are expected and are not this task's to fix. If they block the test run, comment nothing out; just confirm the failures are all `todayUsageMinutes` / `observeTodayUsage` / `getTodayUsage` name errors and continue.
+Expected: PASS. The domain-model rename lands in Task 6, so expect *compile* errors in `MonitoredApp.kt` and the presentation layer until then — those are expected and are not this task's to fix. If they block the test run, comment nothing out; just confirm the failures are all `todayUsageMinutes` / `observeTodayUsage` / `getTodayUsage` name errors and continue.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Do not commit**
 
-```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt \
-        shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/repository
-git commit -m "refactor: move the screen-time repository to seconds, drop reconcile"
-```
+Second third of the rename unit. `git add` nothing. Continue to Task 6, which finishes the rename, restores the build, and makes the one commit for all three tasks.
 
 ---
 
@@ -998,16 +991,11 @@ Expected: PASS, all 14.
 
 Run: `./gradlew :shared:testAndroidHostTest`
 
-Expected: failures are limited to unresolved `todayUsageMinutes` / `observeTodayUsage` in the presentation layer, which Task 5 fixes. Any failure in `MonitoringCoreTest`, `LimitCheckerTest`, `ScreenTimeRepositoryImplTest`, or `WanciDatabaseTest` is a real regression — fix it before committing.
+Expected: failures are limited to unresolved `todayUsageMinutes` / `observeTodayUsage` in the presentation layer, which Task 6 fixes. Any failure in `MonitoringCoreTest`, `LimitCheckerTest`, `ScreenTimeRepositoryImplTest`, or `WanciDatabaseTest` is a real regression — fix it before committing.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Do not commit**
 
-```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt
-git commit -m "feat: track screen time live from a session start timestamp"
-```
+First third of the realtime unit. `git add` nothing. Note that `:shared:testAndroidHostTest` passing is *not* sufficient here — the new `MonitoringCore` constructor has a `clock` parameter that `AppContainer` does not pass yet, so `androidApp` will not compile until Task 5. Continue to Task 4.
 
 ---
 
@@ -1190,14 +1178,9 @@ Run: `./gradlew :androidApp:assembleDebug`
 
 Expected: compile errors in `OverlayManager.kt` only — it still passes `core` and `coreMutex` to a constructor that no longer wants them. That is Task 5. Confirm there are no other errors, then continue.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Do not commit**
 
-```bash
-git add androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/WanciApplication.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring
-git commit -m "refactor: make the accessibility service the only usage source"
-```
+Second third of the realtime unit. `git add` nothing. Continue to Task 5, which is the step that finally lets `androidApp` compile and which makes the unit's single commit.
 
 ---
 
@@ -1289,12 +1272,34 @@ Run: `./gradlew :androidApp:assembleDebug`
 
 Expected: BUILD SUCCESSFUL. Any error here is a leftover reference to the removed constructor parameters.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Commit the realtime unit**
+
+This is the single commit for Tasks 3, 4 and 5, and the first moment since Task 3 that `androidApp` can compile. Verify before committing: `./gradlew :shared:testAndroidHostTest` green and `./gradlew :androidApp:assembleDebug` succeeding. If either fails, the unit is not finished.
 
 ```bash
-git add androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/OverlayManager.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt
-git commit -m "feat: make overlay back navigation leave the restricted app"
+git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring \
+        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring \
+        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/wanci
+git commit -m "feat: track screen time live from a session start timestamp
+
+The old core polled Room every five seconds, which cannot change a day
+total while a restricted app holds the foreground, so the limit was never
+noticed until the user left. Replace polling with one session per
+foreground run: the total is recomputed each second from the session's
+start timestamp on a monotonic clock, and the overlay fires on the tick
+that reaches the limit.
+
+UsageStatsManager reconcile is deleted rather than repaired. It could not
+cover an open session at all, because it only ever totalled packages it
+saw close, so a user who hit the limit mid-session and then force-stopped
+the app lost that time. Its 60-second idempotency window is a second
+accounting path that disagrees with the live one by construction.
+
+Committed as one unit because androidApp does not compile until
+OverlayManager stops taking the core: the new constructor needs a clock
+that AppContainer cannot yet supply, and the old one needs a core that
+OverlayManager is about to stop accepting."
 ```
 
 ---
@@ -1525,14 +1530,34 @@ Run: `./gradlew :shared:testAndroidHostTest`
 
 Expected: PASS, whole suite green for the first time since Task 1.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 10: Commit the rename unit**
+
+This is the single commit for Tasks 1, 2 and 6. The tree has not compiled since Task 1, so this is the first moment it can be committed at all. Verify before committing: `./gradlew :shared:testAndroidHostTest` is green and `./gradlew :androidApp:assembleDebug` succeeds. If either fails, the unit is not finished — do not commit.
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain \
+git add shared/schemas \
+        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local \
+        shared/src/androidMain/kotlin/com/septaalfauzan/wanci/data/local \
+        shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local \
+        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository \
+        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain \
         shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation
-git commit -m "fix: convert the dashboard's limit arithmetic to seconds"
+        shared/src/commonTest/kotlin/com/septaalfauzan/wanci \
+        shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci
+git commit -m "refactor: move screen-time accounting to seconds end to end
+
+The stored unit changes from minutes to seconds so usage is recorded
+exactly rather than to the nearest minute, which is what makes an overlay
+appear at the limit instead of a minute past it.
+
+Landed as one commit because it cannot land in pieces: the database, the
+repository, the domain model and the dashboard all have to speak seconds at
+the same moment. Any intermediate state either fails to compile or, worse,
+compiles and passes its tests while dashboardRow compares seconds to
+minutes and reports a 60x error that no whole-minute fixture can see."
 ```
+
+Do not stage `task-13-report.md` or anything else that is not part of this unit. `git status` before committing should list only the paths above.
 
 ---
 
