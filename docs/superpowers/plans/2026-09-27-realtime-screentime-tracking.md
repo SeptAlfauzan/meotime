@@ -28,6 +28,7 @@
 - Android has no instrumentation test source set (`androidApp/src` contains only `main`). Android-side changes are gated on compilation plus manual verification, not tests.
 - `SyncStateDao`, `getSyncValue`, `putSyncValue`, and `observeSyncValue` **stay** — onboarding depends on `observeSyncValue("onboardingComplete")`. Only the `lastReconcileEpochMillis` key is abandoned.
 - `PACKAGE_USAGE_STATS` stays in the manifest and in the onboarding flow even though nothing reads it. Do not "clean it up".
+- **`remainingMinutes == 0` no longer implies `limitReached`.** Second-granularity usage floors a sub-minute remainder to zero, and `appStatusLabel` checks `limitReached` first, so a zero remainder used to be unreachable in the label. Any new reader of `remainingMinutes` must handle zero-while-under-the-limit, or the UI says "0 minutes remaining".
 - Comments carry the contract and the non-obvious invariants. Do not add line-by-line narration of what the code plainly does.
 
 ### A note on TDD in this plan
@@ -173,7 +174,7 @@ data class DailyUsageEntity(
 )
 ```
 
-`DailyUsageDao.kt` — replace the whole file. `raiseToAtLeast` is **deleted**: its only caller was the reconcile that no longer exists.
+`DailyUsageDao.kt` — replace the whole file. `raiseToAtLeast` is **renamed, not deleted**: it is renamed to `raiseToAtLeastSeconds` and stays for this unit. Its only caller is the reconcile, which survives until Task 4, and reconcile's contract is that it must never lower an existing total — which is only true if the raise is a single SQL statement. Dropping the method here and substituting a read-then-delta in Task 2 silently reintroduces a race with `recordUsageSeconds`, which runs on a different coroutine against the same row: a reconcile that reads `null` while a record inserts drops the platform's number, and one that reads 120 while a record adds 300 lands 900 instead of 420. Both are false over-limit reports. Task 4 deletes the method along with reconcile.
 
 ```kotlin
 package com.septaalfauzan.wanci.data.local
@@ -441,8 +442,10 @@ Rename the `toDomain` parameter to `todayUsageSeconds`.
 
 Leave `reconcileDailyUsage` (lines 87-97) on the interface and in the implementation, but convert at its boundary so it keeps meaning what it meant before this task, in minutes:
 
-- `addDelta(deltaMinutes * 60L)`
-- `raiseToAtLeast(max(existingSeconds, totalMinutes * 60L))`
+- `addDeltaSeconds(deltaMinutes * 60L)`
+- `raiseToAtLeastSeconds(max(existingSeconds, totalMinutes * 60L))`
+
+Keep the original two-statement shape — `insertOrIgnore` first, and only when it returns `-1L` do the `raiseToAtLeastSeconds`. Do not "simplify" it into a read followed by a delta. The raise must stay one statement: see the `raiseToAtLeastSeconds` note in Task 1 Step 3 for the two ways collapsing it over-counts a concurrent write.
 
 `UsageStatsReader` is the only caller and it is not touched until Task 4, so leaving this method in minutes is what keeps `androidApp` compiling. The unit is converted here rather than left as raw seconds precisely so that nothing outside `androidApp` starts reading a second-denominated number as though it were minutes.
 
@@ -1435,6 +1438,16 @@ class UsageFormatTest {
     }
 
     @Test
+    fun doesNotClampADayThatOverranItsLimit() {
+        // The no-clamp invariant. A day can overrun its limit by more than 24 hours, and a
+        // formatter that clamped into 1..1440 the way formatLimitMinutes does would render a
+        // 25-hour day as "24 hours" — a wrong number, in the one place the user is reading their
+        // own usage back.
+        assertEquals("25 hours", formatUsage(90_000L))
+        assertEquals("25 hours 1 min", formatUsage(90_060L))
+    }
+
+    @Test
     fun formatsMinutesAndHours() {
         assertEquals("1 min", formatUsage(60L))
         assertEquals("12 min", formatUsage(720L))
@@ -1477,7 +1490,7 @@ Add the one test that cannot:
             ),
         )
 
-        assertTrue(!row.limitReached, "29m30s against a 30m limit is not over the limit")
+        assertFalse(row.limitReached, "29m30s against a 30m limit is not over the limit")
         assertEquals(0L, row.remainingMinutes, "the half-minute left rounds down to no minutes")
         assertTrue(row.progress < 1f, "the bar must not be full at 29m30s")
     }
@@ -1568,6 +1581,23 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
 ```
 
 `DashboardAppRow.remainingMinutes` keeps its type, so `DashboardScreen` is unaffected. Update the KDoc on the class above it (lines 30-45) to say seconds where it named `todayUsageMinutes`.
+
+Then `appStatusLabel`, which is the only reader of `remainingMinutes`:
+
+```kotlin
+internal fun appStatusLabel(row: DashboardAppRow): String = when {
+    row.limitReached -> "Limit reached"
+    row.paused -> "Monitoring paused"
+    // Reachable for the first time now that usage is in seconds: under the limit with less than
+    // a minute left floors to zero, and "0 minutes remaining" is not a thing anyone has ever
+    // said. The minute cases below are unaffected.
+    row.remainingMinutes == 0L -> "Less than a minute remaining"
+    row.remainingMinutes == 1L -> "1 minute remaining"
+    else -> "${row.remainingMinutes} minutes remaining"
+}
+```
+
+The branch goes after `paused` and before the `== 1L` case, so a paused app still reads "Monitoring paused" rather than "Less than a minute remaining".
 
 - [ ] **Step 7: Update the two view models and screens**
 
