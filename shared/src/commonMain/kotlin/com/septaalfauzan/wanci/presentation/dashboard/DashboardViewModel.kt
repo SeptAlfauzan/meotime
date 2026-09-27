@@ -87,7 +87,7 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
  * Extracted from the dashboard row so the two screens that report the same fact cannot drift apart:
  * a settings screen with its own copy of this mapping is how a list starts saying "3 minutes left"
  * about an app the app's own page calls "Monitoring paused". Both screens derive it from the same
- * [dashboardRow], so the wording is one function, and a test pins all four branches.
+ * [dashboardRow], so the wording is one function, and a test pins all five branches.
  *
  * "Limit reached" is checked first, and stays the answer for a paused app that had already reached
  * its limit when it was paused: that is a real reading, and the usage beside it is still true.

@@ -84,41 +84,6 @@ class ScreenTimeRepositoryImpl(
         }
     }
 
-    /**
-     * Still in **minutes**, unlike every other write here.
-     *
-     * That is deliberate and temporary: the only caller is `UsageStatsReader`, which reports whole
-     * minutes, and it is not touched until the unit that deletes this method. Converting at the
-     * boundary is what stops a second-denominated number from reaching a minute-denominated
-     * caller — or being read as minutes by anything in between.
-     *
-     * The merge is insert, else raise, never sum, and it is unchanged: a platform total is an
-     * absolute figure, so a total already above it must survive, and a session written by
-     * [recordUsageSeconds] on another coroutine must not be rolled back to it. Both halves are
-     * single statements, and the ordering is load-bearing — see
-     * [DailyUsageDao.raiseToAtLeastSeconds] for what a read-then-write costs.
-     */
-    override suspend fun reconcileDailyUsage(
-        deltaMinutesByPackage: Map<String, Long>,
-        date: String,
-    ) {
-        deltaMinutesByPackage.forEach { (packageName, statsMinutes) ->
-            val now = Clock.System.now().toEpochMilliseconds()
-            val totalSeconds = statsMinutes * 60L
-            if (
-                dailyUsageDao.insertOrIgnore(DailyUsageEntity(packageName, date, totalSeconds, now)) == -1L
-            ) {
-                val existingSeconds = dailyUsageDao.getUsageSeconds(packageName, date) ?: 0L
-                dailyUsageDao.raiseToAtLeastSeconds(
-                    packageName,
-                    date,
-                    maxOf(existingSeconds, totalSeconds),
-                    now,
-                )
-            }
-        }
-    }
-
     override suspend fun getSyncValue(key: String): String? = syncStateDao.get(key)
 
     override suspend fun putSyncValue(key: String, value: String) {

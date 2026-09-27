@@ -76,28 +76,6 @@ class ScreenTimeRepositoryImplTest {
         }
     }
 
-    /**
-     * Reconcile merges by maximum, never by sum, and stays in **minutes** on the wire: the only
-     * caller is `UsageStatsReader`, which reports whole minutes and is not touched until the unit
-     * that deletes this method. The numbers are therefore the same minutes as before, read back out
-     * of a seconds-denominated store.
-     */
-    @Test
-    fun reconcileDailyUsageNeverLowersAnExistingTotal() = runTest {
-        val (repo, db) = newRepo()
-        try {
-            repo.addMonitoredApp("com.instagram.android", "Instagram", 30)
-            repo.recordUsageSeconds("com.instagram.android", 40L, "2026-09-25")
-            repo.reconcileDailyUsage(mapOf("com.instagram.android" to 70L), "2026-09-25")
-            assertEquals(4_200L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
-
-            repo.reconcileDailyUsage(mapOf("com.instagram.android" to 30L), "2026-09-25")
-            assertEquals(4_200L, repo.getTodayUsageSeconds("com.instagram.android", "2026-09-25"))
-        } finally {
-            db.closeAndDelete()
-        }
-    }
-
     @Test
     fun observeTodayUsageSecondsSwitchesDate() = runTest {
         val todayKey = MutableTodayKey("2026-09-25")

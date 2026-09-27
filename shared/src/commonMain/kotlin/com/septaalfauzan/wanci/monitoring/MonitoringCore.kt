@@ -9,144 +9,172 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * The polling/recording loop, still speaking whole minutes at both ends.
+ * Decides when a restricted app has had enough. One app is in the foreground at a time, so this
+ * holds exactly one **session** at a time: a contiguous foreground run, opened when a monitored,
+ * enabled, non-Wanci package takes the foreground and closed when any other package does, or when
+ * the screen turns off (which arrives as a null package). Repeated events for the same package —
+ * an activity change, an in-app dialog, a permission prompt — are not switches and do not restart it.
  *
- * The repository now stores and returns **seconds**, so every read here is divided back to minutes
- * and every write is multiplied up: `LimitChecker.exceeds` and `OverlayDecision.usageMinutes` both
- * stay minute-denominated, and the behaviour here is bit-for-bit what it was before the unit
- * changed. The shim is deliberate and temporary — the unit that records a session exactly replaces
- * this arithmetic and deletes it, and dropping either half of it early would compare seconds
- * against a minute-denominated limit and make every limit 60x more permissive, silently.
+ * Elapsed time is never accumulated by counting. The session remembers when it started and every
+ * reading of "how long has this been" is [Session.liveSeconds] against [clock], so a tick cannot
+ * drift from the clock because it never holds a counter to drift. That is also what makes the
+ * whole thing testable: hand [clock] a value the test controls and time stops being a wall-clock
+ * cost.
+ *
+ * Usage is written exactly once, when the session closes. Nothing is written during a session, so
+ * an open session is unpersisted and a process death loses it. That is a deliberate trade: the
+ * `UsageStatsManager` reconcile this replaces was the previous answer to that loss and it could not
+ * cover it, because it only ever totalled packages it saw *close*.
+ *
+ * Five things are true here that the code does not spell out:
+ *
+ *  - [clock] must exclude deep sleep, or a session spanning a doze bills the user for sleep.
+ *    See [MonotonicClock].
+ *  - The ticker stopping does not stop accrual. It exits when it fires on the crossing, but the
+ *    session stays open with its original start time, so time spent on a blocked app after the
+ *    overlay is dismissed is still recorded on close. Accrual lives in the start timestamp, not
+ *    in the ticker.
+ *  - An event for the package already in the foreground is dropped before anything else happens.
+ *    Closing and reopening there would write a partial session and restart the clock, turning one
+ *    run into two writes and losing the sub-second remainder of the first.
+ *  - The previous session is closed in the same call that opens the next one, and it is closed
+ *    *first*. They are different packages, and the close writes to the database the open reads.
+ *  - [Session.overlayShown] is per session, not per day. An app already over its limit is
+ *    announced on every entry, every time. A per-day suppression set would let a user who hit
+ *    the limit once walk past it for the rest of the day.
  */
 class MonitoringCore(
     private val repository: ScreenTimeRepository,
     private val todayKey: TodayKey,
     private val selfPackageName: String,
+    private val clock: MonotonicClock,
     private val scope: CoroutineScope,
     private val onOverlayDecision: (OverlayDecision) -> Unit,
+    private val tickIntervalMillis: Long = 1_000L,
 ) {
     data class OverlayDecision(
         val packageName: String,
         val appName: String,
-        val usageMinutes: Long,
-        val limitMinutes: Int,
+        val usageSeconds: Long,
+        val limitSeconds: Long,
     )
 
-    private var lastPackage: String? = null
-    private var lastEventTime: Long = 0L
-    private val triggeredByDate = mutableMapOf<String, MutableSet<String>>()
-    internal val activeTimers = mutableMapOf<String, Job>()
+    private class Session(
+        val packageName: String,
+        val appName: String,
+        val startedAtMillis: Long,
+        val storedSeconds: Long,
+        val limitSeconds: Long,
+        var overlayShown: Boolean,
+    ) {
+        fun liveSeconds(nowMillis: Long): Long = storedSeconds + (nowMillis - startedAtMillis) / 1000
 
-    suspend fun checkCurrentApp(packageName: String?): OverlayDecision? {
-        if (packageName == null || packageName == selfPackageName) return null
-        val app = repository.getMonitoredApp(packageName)
-        if (app == null || !app.enabled) return null
-        val date = todayKey.todayIso()
-        val usage = repository.getTodayUsageSeconds(packageName, date) / 60L
-        if (!LimitChecker.exceeds(usage, app.dailyLimitMinutes)) return null
-        val triggered = triggeredByDate.getOrPut(date) { mutableSetOf() }
-        if (packageName in triggered) return null
-        triggered += packageName
-        return OverlayDecision(
-            packageName = packageName,
-            appName = app.appName,
-            usageMinutes = usage,
-            limitMinutes = app.dailyLimitMinutes,
-        )
+        fun toDecision(liveSeconds: Long) =
+            OverlayDecision(packageName, appName, liveSeconds, limitSeconds)
     }
 
-    suspend fun startUsageTimer(packageName: String) {
-        if (packageName in activeTimers) return
-        val decision = checkCurrentApp(packageName)
-        if (decision != null) {
-            onOverlayDecision(decision)
+    private var currentSession: Session? = null
+    private var tickJob: Job? = null
+    private var detached = true
+
+    /** Exposed for tests: a ticking session is the only reason this core holds a coroutine. */
+    internal val activeTick: Job? get() = tickJob
+
+    /**
+     * Begins accepting foreground changes. The core is a process-wide singleton and Android
+     * reconnects the accessibility service to the same process, so [detach] has to be reversible
+     * rather than terminal. Called from `onServiceConnected`.
+     */
+    fun attach() {
+        detached = false
+    }
+
+    /**
+     * Stops everything immediately and synchronously, for `AccessibilityService.onDestroy`,
+     * which cannot wait for a coroutine.
+     *
+     * Cancelling the ticker *before returning* is the point: once this returns, no tick can fire,
+     * so the caller can remove the overlay knowing nothing will put it straight back. Closing the
+     * session instead would queue a coroutine and leave exactly the race this avoids. The open
+     * session's unpersisted seconds are dropped, which is the same loss as any other process
+     * death — the two paths now fail identically instead of one of them racing.
+     */
+    fun detach() {
+        tickJob?.cancel()
+        tickJob = null
+        currentSession = null
+        detached = true
+    }
+
+    suspend fun onForegroundChange(packageName: String?) {
+        if (detached) return
+        // The accessibility service delivers a window-state change for activity changes, in-app
+        // dialogs and permission prompts on the same package. Those are not switches, so they must
+        // not reach the close path at all: closing would persist a partial session and reopening
+        // would restart the clock, and the run would become two writes instead of one.
+        if (packageName == currentSession?.packageName) return
+        val now = clock.uptimeMillis()
+        closeCurrentSession(now)
+        val session = createSession(packageName, now) ?: return
+        currentSession = session
+
+        val live = session.liveSeconds(now)
+        if (LimitChecker.exceeds(live, session.limitSeconds)) {
+            // Over before a second has passed. Announced now and never ticked — there is nothing
+            // left to watch for. The session still closes normally, so time spent on the blocked
+            // app is still recorded.
+            session.overlayShown = true
+            onOverlayDecision(session.toDecision(live))
             return
         }
-        val app = repository.getMonitoredApp(packageName)
-        if (app == null || !app.enabled) return
-        if (packageName == selfPackageName) return
-        val job = scope.launch {
-            while (isActive) {
-                delay(5_000L)
-                val usage = repository.getTodayUsageSeconds(packageName, todayKey.todayIso()) / 60L
-                if (LimitChecker.exceeds(usage, app.dailyLimitMinutes)) {
-                    val triggered = triggeredByDate.getOrPut(todayKey.todayIso()) { mutableSetOf() }
-                    if (packageName !in triggered) {
-                        triggered += packageName
-                        onOverlayDecision(
-                            OverlayDecision(
-                                packageName = packageName,
-                                appName = app.appName,
-                                usageMinutes = usage,
-                                limitMinutes = app.dailyLimitMinutes,
-                            )
-                        )
-                    }
-                    activeTimers.remove(packageName)
-                    return@launch
-                }
-            }
-            activeTimers.remove(packageName)
-        }
-        activeTimers[packageName] = job
+        startTicking()
     }
 
-    fun stopUsageTimer(packageName: String) {
-        activeTimers[packageName]?.cancel()
-        activeTimers.remove(packageName)
+    private suspend fun closeCurrentSession(now: Long) {
+        tickJob?.cancel()
+        tickJob = null
+        val session = currentSession ?: return
+        currentSession = null
+        val elapsed = (now - session.startedAtMillis) / 1000
+        if (elapsed <= 0L) return
+        try {
+            repository.recordUsageSeconds(session.packageName, elapsed, todayKey.todayIso())
+        } catch (_: Exception) {
+            // The session is closed and the state is consistent, so a failed write costs the
+            // seconds it carried and nothing else. Letting it escape would abort before the next
+            // session is opened, so one database error would leave whatever app the user switched
+            // to untracked for the rest of the foreground period.
+        }
     }
 
-    suspend fun onForegroundChange(packageName: String?, eventTimeMillis: Long): OverlayDecision? {
-        val previousPackage = lastPackage
-        val previousTime = lastEventTime
-
-        lastPackage = packageName
-        if (packageName != null) lastEventTime = eventTimeMillis
-
-        if (previousPackage != null && previousPackage != packageName) {
-            stopUsageTimer(previousPackage)
-        }
-        if (packageName != null) {
-            startUsageTimer(packageName)
-        }
-
-        if (previousPackage == null || previousPackage == packageName) return null
-        if (previousPackage == selfPackageName) return null
-
-        val elapsedMillis = (eventTimeMillis - previousTime).coerceAtLeast(0L)
-        val deltaMinutes = elapsedMillis / 60_000L
-
-        val app = repository.getMonitoredApp(previousPackage)
-        if (app == null || !app.enabled) return null
-
-        val date = todayKey.todayIso()
-        if (deltaMinutes >= 1) {
-            repository.recordUsageSeconds(previousPackage, deltaMinutes * 60L, date)
-        }
-
-        val usage = repository.getTodayUsageSeconds(previousPackage, date) / 60L
-        if (!LimitChecker.exceeds(usage, app.dailyLimitMinutes)) return null
-
-        val triggered = triggeredByDate.getOrPut(date) { mutableSetOf() }
-        if (previousPackage in triggered) return null
-        triggered += previousPackage
-        return OverlayDecision(
-            packageName = previousPackage,
+    private suspend fun createSession(packageName: String?, now: Long): Session? {
+        if (packageName == null || packageName == selfPackageName) return null
+        val app = repository.getMonitoredApp(packageName) ?: return null
+        if (!app.enabled) return null
+        return Session(
+            packageName = packageName,
             appName = app.appName,
-            usageMinutes = usage,
-            limitMinutes = app.dailyLimitMinutes,
+            startedAtMillis = now,
+            storedSeconds = repository.getTodayUsageSeconds(packageName, todayKey.todayIso()),
+            // The one place the limit's authoring unit becomes an arithmetic unit.
+            limitSeconds = app.dailyLimitMinutes * 60L,
+            overlayShown = false,
         )
     }
 
-    fun onOverlayDismissed(packageName: String) {
-        val date = todayKey.todayIso()
-        triggeredByDate[date]?.remove(packageName)
-    }
-
-    fun resetDay() {
-        val today = todayKey.todayIso()
-        triggeredByDate.keys
-            .filter { it != today }
-            .forEach { triggeredByDate.remove(it) }
+    private fun startTicking() {
+        tickJob = scope.launch {
+            while (isActive) {
+                delay(tickIntervalMillis)
+                val session = currentSession ?: return@launch
+                if (session.overlayShown) return@launch
+                val live = session.liveSeconds(clock.uptimeMillis())
+                if (!LimitChecker.exceeds(live, session.limitSeconds)) continue
+                session.overlayShown = true
+                tickJob = null
+                onOverlayDecision(session.toDecision(live))
+                return@launch
+            }
+        }
     }
 }

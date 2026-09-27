@@ -37,6 +37,35 @@ class FakeRepository : ScreenTimeRepository {
         usage.value = emptyMap()
     }
 
+    /**
+     * The three setters above are `suspend`, so a test that builds its fixtures outside a
+     * coroutine — a `repository()` helper, or a `@Before` — has no way to call them. These are the
+     * same mutations with the suspension dropped, so a fixture reads the same either way.
+     */
+    fun addMonitoredAppBlocking(packageName: String, appName: String, dailyLimitMinutes: Int) {
+        apps.update {
+            it + MonitoredApp(
+                id = it.size.toLong(),
+                packageName = packageName,
+                appName = appName,
+                dailyLimitMinutes = dailyLimitMinutes,
+                enabled = true,
+                createdAt = 0,
+                updatedAt = 0,
+            )
+        }
+    }
+
+    fun setMonitoringEnabledBlocking(packageName: String, enabled: Boolean) {
+        apps.update { list -> list.map { if (it.packageName == packageName) it.copy(enabled = enabled) else it } }
+    }
+
+    fun updateDailyLimitBlocking(packageName: String, dailyLimitMinutes: Int) {
+        apps.update { list ->
+            list.map { if (it.packageName == packageName) it.copy(dailyLimitMinutes = dailyLimitMinutes) else it }
+        }
+    }
+
     override fun observeMonitoredApps(): Flow<List<MonitoredApp>> =
         combine(apps, usage) { monitored, usageByPackage ->
             monitored.map { it.copy(todayUsageSeconds = usageByPackage[it.packageName] ?: 0L) }
@@ -92,17 +121,6 @@ class FakeRepository : ScreenTimeRepository {
         usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaSeconds)) }
     }
 
-    /**
-     * Minutes in, seconds into [usage] — the same conversion the real implementation performs, so
-     * a test that drives this fake and a test that drives the real repository over a real database
-     * read the same number back. [usage] is the map [recordUsageSeconds] accumulates into, and it
-     * is second-denominated like the store.
-     */
-    override suspend fun reconcileDailyUsage(deltaMinutesByPackage: Map<String, Long>, date: String) {
-        deltaMinutesByPackage.forEach { (packageName, minutes) ->
-            usage.update { it + (packageName to maxOf(it[packageName] ?: 0L, minutes * 60L)) }
-        }
-    }
     override suspend fun getSyncValue(key: String): String? = syncValues[key]
     override fun observeSyncValue(key: String): Flow<String?> = flowOf(syncValues[key])
     override suspend fun putSyncValue(key: String, value: String) {

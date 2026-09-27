@@ -1,6 +1,7 @@
 package com.septaalfauzan.wanci
 
 import android.content.Context
+import android.os.SystemClock
 import com.septaalfauzan.wanci.apps.AppLabelResolver
 import com.septaalfauzan.wanci.apps.InstalledAppsProviderAndroid
 import com.septaalfauzan.wanci.data.local.createTodayKey
@@ -9,8 +10,8 @@ import com.septaalfauzan.wanci.data.repository.ScreenTimeRepositoryImpl
 import com.septaalfauzan.wanci.domain.PermissionStatusProvider
 import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
 import com.septaalfauzan.wanci.monitoring.MonitoringCore
+import com.septaalfauzan.wanci.monitoring.MonotonicClock
 import com.septaalfauzan.wanci.monitoring.OverlayManager
-import com.septaalfauzan.wanci.monitoring.UsageStatsReader
 import com.septaalfauzan.wanci.permission.PermissionActions
 import com.septaalfauzan.wanci.permission.PermissionChecks
 import com.septaalfauzan.wanci.presentation.DeepLinkRequest
@@ -18,7 +19,6 @@ import com.septaalfauzan.wanci.presentation.WanciAppDependencies
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 class AppContainer(private val context: Context) {
@@ -31,17 +31,25 @@ class AppContainer(private val context: Context) {
         syncStateDao = database.syncStateDao(),
         todayKey = todayKey,
     )
-    val core = MonitoringCore(repository, todayKey, context.packageName, scope) { decision ->
-        scope.launch { overlayManager.show(decision) }
-    }
+    val core = MonitoringCore(
+        repository = repository,
+        todayKey = todayKey,
+        selfPackageName = context.packageName,
+        // Uptime, not elapsedRealtime: a session must not bill the user for time the device spent
+        // asleep. See MonotonicClock for the rest of the reasoning.
+        clock = MonotonicClock { SystemClock.uptimeMillis() },
+        scope = scope,
+        // No extra launch hop: OverlayManager.show posts to the main thread itself, so wrapping
+        // this in scope.launch would only add a queue between the decision and the screen.
+        onOverlayDecision = { decision -> overlayManager.show(decision) },
+    )
     val coreMutex = Mutex()
     @Suppress("UnnecessaryLateinit")
     internal lateinit var overlayManager: OverlayManager
         private set
-    val usageStatsReader = UsageStatsReader(context)
 
     init {
-        overlayManager = OverlayManager(context, core, scope, coreMutex)
+        overlayManager = OverlayManager(context)
     }
 
     /**

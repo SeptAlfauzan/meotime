@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.ViewGroup
@@ -24,17 +25,8 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.septaalfauzan.wanci.EXTRA_REQUESTED_PACKAGE
 import com.septaalfauzan.wanci.presentation.overlay.OverlayScreen
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
-class OverlayManager(
-    private val context: Context,
-    private val core: MonitoringCore,
-    private val scope: CoroutineScope,
-    private val coreMutex: Mutex = Mutex(),
-) {
+class OverlayManager(private val context: Context) {
 
     private class OverlayLifecycleOwner :
         LifecycleOwner,
@@ -59,7 +51,6 @@ class OverlayManager(
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var overlayView: ComposeView? = null
-    private var visiblePackage: String? = null
 
     fun show(decision: MonitoringCore.OverlayDecision) {
         runOnMain { showOnMain(decision) }
@@ -84,9 +75,13 @@ class OverlayManager(
         val view = ComposeView(context).apply {
             setBackgroundColor(Color.WHITE)
             isFocusableInTouchMode = true
+            // BACK is an exit, not a dismissal. With both buttons leaving as well, no action
+            // closes the overlay while leaving the user inside the restricted app, which is what
+            // makes "one notice per entry" enforceable rather than advisory. Still consumed, so
+            // the app underneath never sees it.
             setOnKeyListener { _, keyCode, _ ->
                 if (keyCode == KeyEvent.KEYCODE_BACK) {
-                    dismiss()
+                    leaveApp()
                     true
                 } else {
                     false
@@ -98,8 +93,11 @@ class OverlayManager(
             setContent {
                 OverlayScreen(
                     appName = decision.appName,
-                    usageMinutes = decision.usageMinutes,
-                    limitMinutes = decision.limitMinutes,
+                    // The core counts in seconds and the screen still counts in minutes; this is
+                    // the one place the two meet, and the only conversion the overlay needs until
+                    // it renders second-granularity wording of its own.
+                    usageMinutes = decision.usageSeconds / 60L,
+                    limitMinutes = (decision.limitSeconds / 60L).toInt(),
                     onLeave = { leaveApp() },
                     onManage = { openWanci(decision.packageName) },
                 )
@@ -108,32 +106,24 @@ class OverlayManager(
         try {
             windowManager.addView(view, params)
         } catch (e: Exception) {
-            val pkg = decision.packageName
-            scope.launch {
-                coreMutex.withLock { core.onOverlayDismissed(pkg) }
-            }
+            // Usually SYSTEM_ALERT_WINDOW revoked in system settings after onboarding granted it.
+            // Not retried: this runs on the main thread via a handler post, so a success signal
+            // would need a two-way handshake back into the core, and a user who revoked the
+            // permission has said what they want. Logged so it is at least answerable when
+            // someone reports the app is not stopping them.
+            Log.w(TAG, "Overlay not shown for ${decision.packageName}", e)
             return
         }
         view.requestFocus()
         overlayView = view
-        visiblePackage = decision.packageName
     }
 
     private fun dismissOnMain() {
         val view = overlayView ?: return
-        val packageName = visiblePackage
-        visiblePackage = null
         overlayView = null
         try {
             windowManager.removeView(view)
         } catch (_: Exception) {
-        }
-        if (packageName != null) {
-            scope.launch {
-                coreMutex.withLock {
-                    core.onOverlayDismissed(packageName)
-                }
-            }
         }
     }
 
@@ -168,5 +158,9 @@ class OverlayManager(
         } else {
             mainHandler.post(block)
         }
+    }
+
+    private companion object {
+        const val TAG = "WanciOverlay"
     }
 }

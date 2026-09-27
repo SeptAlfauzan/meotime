@@ -13,7 +13,6 @@ interface ScreenTimeRepository {
     suspend fun setMonitoringEnabled(packageName: String, enabled: Boolean)
     suspend fun removeMonitoredApp(packageName: String)
     suspend fun recordUsageSeconds(packageName: String, deltaSeconds: Long, date: String)
-    suspend fun reconcileDailyUsage(deltaMinutesByPackage: Map<String, Long>, date: String)
     suspend fun getSyncValue(key: String): String?
     suspend fun putSyncValue(key: String, value: String)
     fun observeSyncValue(key: String): Flow<String?>
