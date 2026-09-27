@@ -16,12 +16,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.septaalfauzan.wanci.presentation.theme.WanciButton
 import com.septaalfauzan.wanci.presentation.theme.WanciOutlinedButton
+import com.septaalfauzan.wanci.presentation.format.formatUsage
 
 @Composable
 fun OverlayScreen(
     appName: String,
-    usageMinutes: Long,
-    limitMinutes: Int,
+    usageSeconds: Long,
+    limitSeconds: Long,
     onLeave: () -> Unit,
     onManage: () -> Unit,
 ) {
@@ -41,7 +42,7 @@ fun OverlayScreen(
         )
         Spacer(Modifier.height(20.dp))
         Text(
-            "$usageMinutes / $limitMinutes minutes",
+            "${formatUsage(usageSeconds)} / ${formatUsage(limitSeconds)}",
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(32.dp))

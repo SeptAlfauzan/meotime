@@ -93,11 +93,8 @@ class OverlayManager(private val context: Context) {
             setContent {
                 OverlayScreen(
                     appName = decision.appName,
-                    // The core counts in seconds and the screen still counts in minutes; this is
-                    // the one place the two meet, and the only conversion the overlay needs until
-                    // it renders second-granularity wording of its own.
-                    usageMinutes = decision.usageSeconds / 60L,
-                    limitMinutes = (decision.limitSeconds / 60L).toInt(),
+                    usageSeconds = decision.usageSeconds,
+                    limitSeconds = decision.limitSeconds,
                     onLeave = { leaveApp() },
                     onManage = { openWanci(decision.packageName) },
                 )
