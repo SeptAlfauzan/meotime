@@ -197,6 +197,13 @@ interface DailyUsageDao {
     @Query("UPDATE daily_usage SET usageSeconds = usageSeconds + :delta, updatedAt = :updatedAt WHERE packageName = :packageName AND date = :date")
     suspend fun addDeltaSeconds(packageName: String, date: String, delta: Long, updatedAt: Long)
 
+    // One statement on purpose. The caller passes only the number it wants the total to reach, and
+    // the SQL keeps whichever is larger, so a concurrent `addDeltaSeconds` landing between the
+    // caller's read and this call cannot be lost and cannot be double-counted. Doing the
+    // `max(existing, target)` in Kotlin instead would need a read-then-write pair and lose that.
+    @Query("UPDATE daily_usage SET usageSeconds = MAX(usageSeconds, :seconds), updatedAt = :updatedAt WHERE packageName = :packageName AND date = :date")
+    suspend fun raiseToAtLeastSeconds(packageName: String, date: String, seconds: Long, updatedAt: Long)
+
     @Query("SELECT * FROM daily_usage WHERE date = :date")
     fun observeForDate(date: String): Flow<List<DailyUsageEntity>>
 
@@ -443,9 +450,9 @@ Rename the `toDomain` parameter to `todayUsageSeconds`.
 Leave `reconcileDailyUsage` (lines 87-97) on the interface and in the implementation, but convert at its boundary so it keeps meaning what it meant before this task, in minutes:
 
 - `addDeltaSeconds(deltaMinutes * 60L)`
-- `raiseToAtLeastSeconds(max(existingSeconds, totalMinutes * 60L))`
+- `raiseToAtLeastSeconds(packageName, date, totalMinutes * 60L, now)`
 
-Keep the original two-statement shape — `insertOrIgnore` first, and only when it returns `-1L` do the `raiseToAtLeastSeconds`. Do not "simplify" it into a read followed by a delta. The raise must stay one statement: see the `raiseToAtLeastSeconds` note in Task 1 Step 3 for the two ways collapsing it over-counts a concurrent write.
+Keep the original two-statement shape — `insertOrIgnore` first, and only when it returns `-1L` do the `raiseToAtLeastSeconds`. Do not "simplify" it into a read followed by a delta. The raise must stay one statement: see the `raiseToAtLeastSeconds` note in Task 1 Step 3 for the two ways collapsing it over-counts a concurrent write. Pass the platform's total only, not `max(existing, total)` — the SQL's `MAX` already keeps the larger, and the method's name is its contract.
 
 `UsageStatsReader` is the only caller and it is not touched until Task 4, so leaving this method in minutes is what keeps `androidApp` compiling. The unit is converted here rather than left as raw seconds precisely so that nothing outside `androidApp` starts reading a second-denominated number as though it were minutes.
 
