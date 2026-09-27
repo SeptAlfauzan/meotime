@@ -17,9 +17,11 @@
 - Net effect: three code commits, each green — the rename unit, the realtime unit, and Task 7's overlay text on its own.
 - **The rename unit must shim `MonitoringCore`, not rewrite it.** After the repository is renamed, `MonitoringCore` would be handed seconds and would compare them against `dailyLimitMinutes` through a minutes-denominated `LimitChecker`, making every limit 60× more permissive — silently, with the overlay still appearing on schedule relative to the new scale. Task 2 Step 6 converts back at those two call sites so the commit preserves existing behaviour exactly, and Task 3 deletes the shim. Likewise `reconcileDailyUsage` survives the rename unit in minutes, because `UsageStatsReader` is its only caller and is not touched until Task 4; the two die together there.
 - **The rename and the dashboard arithmetic must not be separable commits.** Once the domain model speaks seconds and the limit is still authored in minutes, `dashboardRow` is wrong by 60× while still compiling and while every existing test still passes — because all sixteen of its fixtures are whole minutes. That is a worse defect than a build break, so the conversion and the rename land together or not at all.
+- **Do not trust the line numbers in any file list in this plan.** They were written against an earlier reading of the tree and are wrong in several places — `MonitoringCore` has four repository call sites, not the three Task 2 lists; `AppSettingsViewModel` has a `getTodayUsage` call outside the line range Task 6 names; the reconcile test in `ScreenTimeRepositoryImplTest` is named `reconcileUsesMaxMerge`, not the name Task 2 uses. Use them as a guide to *which file* and *what kind of change*, then let the compiler find the rest. Every such drift found during Unit 1 was mechanical, and every one of them would have left the tree non-compiling if the line number had been taken literally.
 - `minSdk` is **28** and `compileSdk`/`targetSdk` are **37**. `ALTER TABLE ... DROP COLUMN` requires SQLite 3.35 (API 30) and is therefore **unavailable** — the migration must use the create-copy-drop-rename rebuild.
 - `room { schemaDirectory("$projectDir/schemas") }` is **already configured** at `shared/build.gradle.kts:74-76`. Do not add a `room.schemaLocation` KSP argument; only `exportSchema` needs flipping.
 - The database is created on **both** platforms via `Room.databaseBuilder`. Neither registers any migration today, so an unregistered migration means a silent destructive wipe on upgrade. Both must call `.addMigrations(MIGRATION_1_2)`.
+- **A Room `Migration` cannot live in `commonMain`.** `migrate` takes a `SupportSQLiteDatabase` on Android and an `androidx.sqlite.SQLiteConnection` on native, and the Android type is absent from the native `androidx.sqlite` artifact, so one common subclass can override neither. The migration's SQL lives in `commonMain` as a list; each platform supplies a thin `Migration` shell over its own `execSQL`. Exactly one copy of the SQL, or the two platforms migrate different schemas.
 - `MonitoredAppEntity.dailyLimitMinutes` is an **authoring unit and does not change**. It is converted to seconds at exactly one place: `MonitoringCore`. Do not migrate that column.
 - Only the clock passed into `MonitoringCore` may be read for session arithmetic. It must **exclude deep sleep** — Android binds it to `SystemClock.uptimeMillis()`, never `elapsedRealtime()` or `currentTimeMillis()`.
 - Usage is written to the database **once per session, on close**. There is no periodic checkpoint.
@@ -52,7 +54,9 @@ This is a rename-heavy refactor across five layers, so several tasks cannot prod
 The schema is the floor everything else stands on: no later task compiles until the database can hold seconds, and a wrong migration silently wipes every user's monitored apps on upgrade.
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.kt`
+- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.kt` — the SQL only; the `Migration` cannot be common
+- Create: `shared/src/androidMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.android.kt`
+- Create: `shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.ios.kt`
 - Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/WanciDatabase.kt:11-19`
 - Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/entity/DailyUsageEntity.kt:6-11`
 - Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/DailyUsageDao.kt:12-28`
@@ -78,7 +82,7 @@ Append to `WanciDatabaseTest.kt`. The test builds a real v1 database with raw SQ
 
 ```kotlin
     @Test
-    fun migration_1_2_preservesMonitoredAppsAndConvertsUsageToSeconds() {
+    fun migration_1_2_preservesMonitoredAppsAndConvertsUsageToSeconds() = runTest {
         val directory = createTempDirectory(prefix = "wanci-v1").toFile()
         val path = directory.resolve("v1.db").path
 
@@ -101,6 +105,14 @@ Append to `WanciDatabaseTest.kt`. The test builds a real v1 database with raw SQ
             execSQL(
                 "CREATE UNIQUE INDEX IF NOT EXISTS `index_monitored_apps_packageName` " +
                     "ON `monitored_apps` (`packageName`)",
+            )
+            // Room validates the structure of *every* table after a migration, not only the one
+            // the migration touched, so a v1 database without `sync_state` fails with
+            // "Migration didn't properly handle: sync_state(...)" before reaching any assertion.
+            // The table is unchanged by this migration; it just has to be there to be validated.
+            execSQL(
+                "CREATE TABLE IF NOT EXISTS `sync_state` (" +
+                    "`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
             )
             execSQL(
                 "INSERT INTO `daily_usage` VALUES ('com.instagram.android', '2026-09-25', 42, 2)",
@@ -126,7 +138,7 @@ Append to `WanciDatabaseTest.kt`. The test builds a real v1 database with raw SQ
     }
 ```
 
-Add these imports to `WanciDatabaseTest.kt`: `kotlin.io.path.createTempDirectory`, `com.septaalfauzan.wanci.data.local.createWanciDatabase`.
+Add these imports to `WanciDatabaseTest.kt` if absent: `kotlin.io.path.createTempDirectory`, `com.septaalfauzan.wanci.data.local.createWanciDatabase`, `kotlinx.coroutines.test.runTest`, `kotlinx.coroutines.test.runTest` is only needed because the assertions call `suspend` DAO reads — a plain `fun` will not compile.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -194,13 +206,14 @@ interface DailyUsageDao {
 
 - [ ] **Step 4: Write the migration**
 
-Create `WanciMigrations.kt`:
+The migration cannot live in `commonMain`, which is the whole shape of this step. Room's `Migration.migrate` takes a **different parameter per platform** — `SupportSQLiteDatabase` on Android, `androidx.sqlite.SQLiteConnection` on native — and `androidx.sqlite.db.SupportSQLiteDatabase` is not in the native `androidx.sqlite` artifact at all, so the import does not resolve for an iOS compile and no dependency change fixes it. One `commonMain` subclass cannot override both signatures.
+
+So the SQL lives in `commonMain` once, and each platform gets a three-line shell that hands it to its own `execSQL`. The statements are the part carrying the contract, so there must be exactly one copy of them; the alternative, duplicating the SQL per platform, is how a migration ends up migrating two different schemas.
+
+**`commonMain/…/WanciMigrations.kt`:**
 
 ```kotlin
 package com.septaalfauzan.wanci.data.local
-
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * v1 -> v2: `daily_usage.usageMinutes` became `usageSeconds`.
@@ -213,32 +226,63 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *
  * Registered on both platforms in `createWanciDatabase`. An unregistered migration is not a
  * no-op: Room falls back to dropping every table.
+ *
+ * The statements, not the `Migration`, are what lives here: Room's `migrate` takes a
+ * `SupportSQLiteDatabase` on Android and an `SQLiteConnection` on native, so the object cannot
+ * be common. Both platforms expose the same `execSQL(String)`, which is the only thing these
+ * need in common.
  */
+internal val MIGRATION_1_2_SQL: List<String> = listOf(
+    """
+    CREATE TABLE IF NOT EXISTS `daily_usage_new` (
+      `packageName` TEXT NOT NULL,
+      `date` TEXT NOT NULL,
+      `usageSeconds` INTEGER NOT NULL,
+      `updatedAt` INTEGER NOT NULL,
+      PRIMARY KEY(`packageName`, `date`)
+    )
+    """.trimIndent(),
+    """
+    INSERT OR REPLACE INTO `daily_usage_new`
+      (`packageName`, `date`, `usageSeconds`, `updatedAt`)
+    SELECT `packageName`, `date`, `usageMinutes` * 60, `updatedAt` FROM `daily_usage`
+    """.trimIndent(),
+    "DROP TABLE `daily_usage`",
+    "ALTER TABLE `daily_usage_new` RENAME TO `daily_usage`",
+)
+```
+
+**`androidMain/…/WanciMigrations.android.kt`:**
+
+```kotlin
+package com.septaalfauzan.wanci.data.local
+
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE IF NOT EXISTS `daily_usage_new` (
-              `packageName` TEXT NOT NULL,
-              `date` TEXT NOT NULL,
-              `usageSeconds` INTEGER NOT NULL,
-              `updatedAt` INTEGER NOT NULL,
-              PRIMARY KEY(`packageName`, `date`)
-            )
-            """.trimIndent(),
-        )
-        db.execSQL(
-            """
-            INSERT OR REPLACE INTO `daily_usage_new`
-              (`packageName`, `date`, `usageSeconds`, `updatedAt`)
-            SELECT `packageName`, `date`, `usageMinutes` * 60, `updatedAt` FROM `daily_usage`
-            """.trimIndent(),
-        )
-        db.execSQL("DROP TABLE `daily_usage`")
-        db.execSQL("ALTER TABLE `daily_usage_new` RENAME TO `daily_usage`")
+        MIGRATION_1_2_SQL.forEach { db.execSQL(it) }
     }
 }
 ```
+
+**`iosMain/…/WanciMigrations.ios.kt`:**
+
+```kotlin
+package com.septaalfauzan.wanci.data.local
+
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(connection: SQLiteConnection) {
+        MIGRATION_1_2_SQL.forEach { connection.execSQL(it) }
+    }
+}
+```
+
+Both `MIGRATION_1_2` declarations are public and un-annotated because they are consumed from `commonMain`'s `expect fun createWanciDatabase`, which resolves per platform.
 
 - [ ] **Step 5: Bump the version and turn on schema export**
 
