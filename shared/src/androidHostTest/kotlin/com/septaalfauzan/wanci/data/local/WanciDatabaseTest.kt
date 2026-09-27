@@ -56,8 +56,8 @@ class WanciDatabaseTest {
             usageDao.addDeltaSeconds("com.instagram.android", "2026-09-25", 3L, 3L)
             assertEquals(45L, usageDao.getUsageSeconds("com.instagram.android", "2026-09-25"))
 
-            syncDao.put(SyncStateEntity("lastReconcileEpochMillis", "1700000000000"))
-            assertEquals("1700000000000", syncDao.get("lastReconcileEpochMillis"))
+            syncDao.put(SyncStateEntity("sync_state_sample", "1700000000000"))
+            assertEquals("1700000000000", syncDao.get("sync_state_sample"))
             assertNull(syncDao.get("missing"))
         } finally {
             db.closeAndDelete()

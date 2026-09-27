@@ -5,8 +5,8 @@ package com.septaalfauzan.wanci.presentation.format
  *
  * Lives in its own file rather than beside the settings view model because it is a property of
  * *usage*, not of one screen: the dashboard row and the settings page both print it, and the
- * overlay — which runs over another app with no view model in sight — will need it too, once that
- * screen is converted along with everything else.
+ * overlay — which runs over another app with no view model in sight — is what finally
+ * needs a number, once that screen is converted.
  *
  * Deliberately *not* `com.septaalfauzan.wanci.presentation.limit.formatLimitMinutes`, which
  * clamps into `1..1440` because it formats a limit and 0 minutes is not a limit a user can
