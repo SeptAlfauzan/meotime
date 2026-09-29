@@ -330,7 +330,9 @@ git commit -m "feat: publish session changes from MonitoringCore"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `UsageFormatTest.kt`:
+Append to `UsageFormatTest.kt` — `formatShortDuration` is in
+`com.septaalfauzan.wanci.presentation.format` while the test file's own package is the root
+`com.septaalfauzan.wanci`, so it needs an import alongside the existing `formatUsage` one:
 
 ```kotlin
     @Test
@@ -343,12 +345,15 @@ Append to `UsageFormatTest.kt`:
         assertEquals("1h", formatShortDuration(60 * 60L))
         assertEquals("1h 5m", formatShortDuration(65 * 60L))
         assertEquals("0s", formatShortDuration(-5L), "a negative reading floors at zero")
+        // No 24h clamp, unlike formatUsage: a day can overrun its limit by more than a day, and
+        // "25h" is the honest reading. The clamp formatUsage applies is for limits, not readings.
+        assertEquals("25h 1m", formatShortDuration(25 * 60 * 60L + 60L))
     }
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.presentation.format.UsageFormatTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.UsageFormatTest"`
 
 Expected: compilation failure — `Unresolved reference: formatShortDuration`.
 
@@ -382,7 +387,7 @@ fun formatShortDuration(seconds: Long): String {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.presentation.format.UsageFormatTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.UsageFormatTest"`
 
 Expected: PASS.
 

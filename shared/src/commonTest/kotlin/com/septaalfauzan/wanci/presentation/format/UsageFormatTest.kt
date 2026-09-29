@@ -48,5 +48,8 @@ class UsageFormatTest {
         assertEquals("1h", formatShortDuration(60 * 60L))
         assertEquals("1h 5m", formatShortDuration(65 * 60L))
         assertEquals("0s", formatShortDuration(-5L), "a negative reading floors at zero")
+        // No 24h clamp, unlike formatUsage: a day can overrun its limit by more than a day, and
+        // "25h" is the honest reading. The clamp formatUsage applies is for limits, not readings.
+        assertEquals("25h 1m", formatShortDuration(25 * 60 * 60L + 60L))
     }
 }
