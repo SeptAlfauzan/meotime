@@ -123,7 +123,16 @@ class FakeRepository : ScreenTimeRepository {
 
     override suspend fun getSyncValue(key: String): String? = syncValues[key]
     override fun observeSyncValue(key: String): Flow<String?> = flowOf(syncValues[key])
+    /**
+     * Makes [putSyncValue] throw, so a test can prove a failed *flag* write is reported rather than
+     * swallowed. The real failure is a Room upsert on `sync_values`; what the caller has to survive
+     * is not a corrupt row but a screen the user cannot leave, since onboarding only ends once this
+     * key is on disk.
+     */
+    var failOnPutSync = false
+
     override suspend fun putSyncValue(key: String, value: String) {
+        if (failOnPutSync) throw IllegalStateException("simulated Room failure")
         syncValues[key] = value
     }
     override suspend fun deleteUsageBefore(date: String) {}

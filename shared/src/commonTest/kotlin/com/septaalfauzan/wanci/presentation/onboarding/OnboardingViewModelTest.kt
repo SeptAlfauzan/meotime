@@ -17,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private class FakePermissionStatusProvider(
@@ -127,9 +128,53 @@ class OnboardingViewModelTest {
         viewModel.completeOnboarding { done = true }
 
         assertEquals("true", repository.syncValues["onboardingComplete"])
-        assertTrue(viewModel.state.value.saving)
+        assertFalse(viewModel.state.value.saving, "the latch is lowered on the way out, not left raised")
+        assertFalse(viewModel.state.value.saveFailed)
         assertTrue(done)
         assertEquals(listOf("start"), started, "monitoring must be live the moment onboarding ends")
+    }
+
+    /**
+     * A write that throws must not be treated as an onboarding the user already finished.
+     *
+     * The flag is the only durable record of this screen having been completed, so starting
+     * monitoring and navigating away on a failed write would leave an app that blocks every app it
+     * limits with nothing to show for it, and no way back to this screen to retry.
+     */
+    @Test
+    fun aFailedOnboardingWriteReportsAndLeavesTheUserOnTheScreen() {
+        repository.failOnPutSync = true
+        var done = false
+
+        viewModel.completeOnboarding { done = true }
+
+        val state = viewModel.state.value
+        assertTrue(state.saveFailed, "the failure has to reach the screen, or the retry looks like a bug")
+        assertFalse(state.saving, "a latch left raised is a button nobody can press again")
+        assertFalse(done, "navigating away strands the user on a screen with no flag and no way back")
+        assertEquals(emptyList<String>(), started, "monitoring must not start against a flag that was never written")
+        assertNull(repository.syncValues["onboardingComplete"])
+    }
+
+    /**
+     * The failure is recoverable rather than terminal, and the flag that reported it is retired by
+     * the press that replaces it rather than lingering over a save that worked.
+     */
+    @Test
+    fun retryingAfterAFailedOnboardingWriteFinishesAndClearsTheFailure() {
+        repository.failOnPutSync = true
+        var done = false
+        viewModel.completeOnboarding { done = true }
+        assertTrue(viewModel.state.value.saveFailed)
+
+        repository.failOnPutSync = false
+        viewModel.completeOnboarding { done = true }
+
+        assertEquals("true", repository.syncValues["onboardingComplete"])
+        assertFalse(viewModel.state.value.saveFailed)
+        assertFalse(viewModel.state.value.saving)
+        assertTrue(done)
+        assertEquals(listOf("start"), started)
     }
 
     @Test
