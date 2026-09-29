@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Wanci</string>
-    <string name="accessibility_service_description">Wanci monitors which apps you open so it can remind you when you reach your daily usage limits. It reads only the currently foreground app; all data stays on your device.</string>
+    <string name="notification_channel_name">Screen-time monitoring</string>
 </resources>
