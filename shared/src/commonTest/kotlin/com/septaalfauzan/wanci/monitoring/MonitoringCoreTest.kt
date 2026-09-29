@@ -266,11 +266,18 @@ class MonitoringCoreTest {
     @Test
     fun detachStopsEverythingAndAttachResumes() = runTest {
         val repo = repository()
-        val core = core(repo)
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
 
         core.onForegroundChange(INSTAGRAM)
+        assertEquals(1, seen.size, "the session detach() abandons opened normally")
+
         core.detach()
         assertNull(core.activeTick, "teardown must be able to stop the ticker synchronously")
+        // The documented contract on onSessionChanged: detach() is teardown, so the listener is
+        // going away with the service and its notification. A close reported here would be received
+        // by something that is already being destroyed.
+        assertEquals(1, seen.size, "detach() must not publish the close it skips")
 
         advanceTimeBy(3_600L)
         core.onForegroundChange(LAUNCHER)
@@ -297,11 +304,35 @@ class MonitoringCoreTest {
         assertNotNull(snapshot)
         assertEquals(INSTAGRAM, snapshot.packageName)
         assertEquals("Instagram", snapshot.appName)
+        // Pinned because every liveSeconds assertion below is made at zero elapsed, where a wrong
+        // start time cancels out and cannot be observed. The field is the base every running total
+        // a notification shows is measured from, so it is worth one assertion of its own.
+        assertEquals(currentTime, snapshot.startedAtMillis)
         assertEquals(600L, snapshot.storedSeconds)
         assertEquals(1_800L, snapshot.limitSeconds)
         // Zero elapsed, so the live total is exactly the stored total: liveSeconds is a running
         // total that already includes today's earlier usage, not just time spent in this session.
         assertEquals(600L, snapshot.liveSeconds(currentTime))
+    }
+
+    @Test
+    fun theSnapshotCountsTheSameSecondsTheCoreEnforced() = runTest {
+        // SessionSnapshot.liveSeconds is a copy of the core's own private arithmetic, and the only
+        // way to tell the copy from the original is to compare the two at a moment when the clock
+        // has moved. The overlay decision is that moment: it carries the total the core actually
+        // enforced, so if the copy ever drifts, a notification built from the snapshot would report
+        // a running total the limit was never applied to.
+        val repo = repository()
+        repo.recordUsageSeconds(INSTAGRAM, 29 * 60L, today.todayIso())
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        advanceTimeBy(60_000L)
+        runCurrent()
+
+        assertEquals(1, decisions.size)
+        assertEquals(decisions[0].usageSeconds, seen[0]!!.liveSeconds(currentTime))
     }
 
     @Test
