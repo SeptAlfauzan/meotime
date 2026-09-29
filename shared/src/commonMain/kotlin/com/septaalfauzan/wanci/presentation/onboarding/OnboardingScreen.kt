@@ -56,15 +56,27 @@ fun OnboardingScreen(
         )
         PermissionRow(
             title = "Notifications",
-            detail = "Get reminded when an app hits its limit.",
+            detail = "Show the reminder while Wanci is not open.",
             granted = state.permissionStatus.notification,
             onClick = viewModel::requestNotification,
         )
         Spacer(Modifier.height(32.dp))
 
+        if (state.saveFailed) {
+            Text(
+                text = "Could not save. Check your storage and try again.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+
         if (state.permissionStatus.allGranted) {
             WanciButton(
                 onClick = { viewModel.completeOnboarding(onFinished) },
+                // Double-submit guard: `saving` is lowered on every way out of the save, so a
+                // second tap would otherwise queue a second write and a second navigation.
+                enabled = !state.saving,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("You're ready")
