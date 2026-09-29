@@ -65,8 +65,11 @@ fun OnboardingScreen(
         if (state.saveFailed) {
             Text(
                 text = "Could not save. Check your storage and try again.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                // onSurfaceVariant, not the error role: this matches every other inline notice in
+                // the app, and the sentence already carries the failure on its own. Red here would
+                // make onboarding the only screen that shouts.
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
         }

@@ -793,8 +793,11 @@ its siblings — do not invent a new style:
         if (state.saveFailed) {
             Text(
                 text = "Could not save. Check your storage and try again.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                // onSurfaceVariant, not the error role: this matches every other inline notice in
+                // the app, and the sentence already carries the failure on its own. Red here would
+                // make onboarding the only screen that shouts.
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 ```
@@ -805,7 +808,7 @@ than widening this task into a component change.
 
 - [ ] **Step 4: Compile the shared module**
 
-Run: `./gradlew :shared:compileKotlinAndroid`
+Run: `./gradlew :shared:compileAndroidMain`
 
 Expected: FAIL — `androidApp` is not compiled here, but `shared` itself must compile. If it fails on anything other than a `WanciAppDependencies` construction site outside `androidApp`, fix that site. `androidApp`'s `toDependencies` cannot be checked until Task 7, so the next gate for the whole graph is Task 7's `assembleDebug`.
 
