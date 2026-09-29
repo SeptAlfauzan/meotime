@@ -30,3 +30,25 @@ fun formatUsage(seconds: Long): String {
         else -> "$hours $hourLabel $restMinutes min"
     }
 }
+
+/**
+ * A duration small enough to sit in a persistent notification, where a full sentence-width label
+ * would be truncated by the shade.
+ *
+ * Deliberately not [formatUsage]: that renders "5 min" and "1 hour 5 min" for a dashboard row, and
+ * neither shape fits next to a limit. This one drops every word except the unit that is doing the
+ * work. Seconds still appear below a minute, because "0m" next to a limit reads as a bug rather
+ * than as a fresh session.
+ */
+fun formatShortDuration(seconds: Long): String {
+    val total = seconds.coerceAtLeast(0L)
+    if (total < 60L) return "${total}s"
+    val minutes = total / 60
+    val hours = minutes / 60
+    val restMinutes = minutes % 60
+    return when {
+        hours == 0L -> "${minutes}m"
+        restMinutes == 0L -> "${hours}h"
+        else -> "${hours}h ${restMinutes}m"
+    }
+}

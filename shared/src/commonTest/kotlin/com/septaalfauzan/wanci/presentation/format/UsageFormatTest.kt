@@ -1,5 +1,6 @@
 package com.septaalfauzan.wanci
 
+import com.septaalfauzan.wanci.presentation.format.formatShortDuration
 import com.septaalfauzan.wanci.presentation.format.formatUsage
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,5 +36,17 @@ class UsageFormatTest {
     @Test
     fun floorsNegativeReadingsAtZero() {
         assertEquals("0 sec", formatUsage(-5L))
+    }
+
+    @Test
+    fun shortDurationStaysCompactForANotification() {
+        assertEquals("0s", formatShortDuration(0L))
+        assertEquals("45s", formatShortDuration(45L))
+        assertEquals("1m", formatShortDuration(60L))
+        assertEquals("12m", formatShortDuration(12 * 60L))
+        assertEquals("59m", formatShortDuration(59 * 60L + 59L))
+        assertEquals("1h", formatShortDuration(60 * 60L))
+        assertEquals("1h 5m", formatShortDuration(65 * 60L))
+        assertEquals("0s", formatShortDuration(-5L), "a negative reading floors at zero")
     }
 }
