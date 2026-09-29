@@ -6,6 +6,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.septaalfauzan.wanci.data.local.TodayKey
 import com.septaalfauzan.wanci.domain.InstalledAppCheck
 import com.septaalfauzan.wanci.domain.InstalledAppsProvider
+import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
 import com.septaalfauzan.wanci.domain.PermissionNavigator
 import com.septaalfauzan.wanci.domain.PermissionStatusProvider
 import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
@@ -28,6 +29,7 @@ data class WanciAppDependencies(
     val todayKey: TodayKey,
     val permissionStatusProvider: PermissionStatusProvider,
     val permissionNavigator: PermissionNavigator,
+    val notificationPermissionRequest: NotificationPermissionRequest,
     val installedAppsProvider: InstalledAppsProvider,
     val installedAppCheck: InstalledAppCheck,
     val deepLink: DeepLinkRequest? = null,

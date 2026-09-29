@@ -2,6 +2,7 @@ package com.septaalfauzan.wanci.presentation.onboarding
 
 import com.septaalfauzan.wanci.FakeRepository
 import com.septaalfauzan.wanci.FakeTodayKey
+import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
 import com.septaalfauzan.wanci.domain.PermissionNavigator
 import com.septaalfauzan.wanci.domain.PermissionStatus
 import com.septaalfauzan.wanci.domain.PermissionStatusProvider
@@ -38,9 +39,17 @@ private class RecordingPermissionNavigator : PermissionNavigator {
     override fun openOverlay() {
         opened += "overlay"
     }
+}
 
-    override fun openAccessibility() {
-        opened += "accessibility"
+private class FakeNotificationPermissionRequest : NotificationPermissionRequest {
+    var requests = 0
+
+    /** When true the fake answers immediately, the way a granted permission would. */
+    var grantImmediately: Boolean = false
+
+    override fun request(onResult: () -> Unit) {
+        requests++
+        if (grantImmediately) onResult()
     }
 }
 
@@ -50,12 +59,16 @@ class OnboardingViewModelTest {
     private val repository = FakeRepository()
     private val permissions = FakePermissionStatusProvider()
     private val navigator = RecordingPermissionNavigator()
+    private val notificationRequest = FakeNotificationPermissionRequest()
+    private val started = mutableListOf<String>()
     private lateinit var viewModel: OnboardingViewModel
 
     private fun newViewModel(): OnboardingViewModel = OnboardingViewModel(
         useCases = WanciUseCases(repository, FakeTodayKey("2026-09-25")),
         permissionStatusProvider = permissions,
         permissionNavigator = navigator,
+        notificationPermissionRequest = notificationRequest,
+        startMonitoring = { started += "start" },
     )
 
     @BeforeTest
@@ -86,7 +99,7 @@ class OnboardingViewModelTest {
 
     @Test
     fun refreshPublishesLatestPermissionSnapshot() {
-        permissions.current = PermissionStatus(usageAccess = true, overlay = true, accessibility = true)
+        permissions.current = PermissionStatus(usageAccess = true, overlay = true, notification = true)
 
         viewModel.refresh()
 
@@ -96,19 +109,19 @@ class OnboardingViewModelTest {
 
     @Test
     fun partialPermissionsDoNotCompleteOnboarding() {
-        permissions.current = PermissionStatus(usageAccess = true, overlay = false, accessibility = true)
+        permissions.current = PermissionStatus(usageAccess = true, overlay = false, notification = true)
 
         viewModel.refresh()
 
         val status = viewModel.state.value.permissionStatus
         assertTrue(status.usageAccess)
         assertFalse(status.overlay)
-        assertTrue(status.accessibility)
+        assertTrue(status.notification)
         assertFalse(status.allGranted)
     }
 
     @Test
-    fun completeOnboardingPersistsFlagAndNotifies() {
+    fun completeOnboardingPersistsFlagNotifiesAndStartsMonitoring() {
         var done = false
 
         viewModel.completeOnboarding { done = true }
@@ -116,14 +129,27 @@ class OnboardingViewModelTest {
         assertEquals("true", repository.syncValues["onboardingComplete"])
         assertTrue(viewModel.state.value.saving)
         assertTrue(done)
+        assertEquals(listOf("start"), started, "monitoring must be live the moment onboarding ends")
     }
 
     @Test
-    fun requestMethodsDelegateToNavigator() {
+    fun requestMethodsDelegateToNavigatorAndRequest() {
         viewModel.requestUsageAccess()
         viewModel.requestOverlay()
-        viewModel.requestAccessibility()
+        viewModel.requestNotification()
 
-        assertEquals(listOf("usage", "overlay", "accessibility"), navigator.opened)
+        assertEquals(listOf("usage", "overlay"), navigator.opened)
+        assertEquals(1, notificationRequest.requests)
+    }
+
+    @Test
+    fun aNotificationAnswerRefreshesThePermissionSnapshot() {
+        permissions.current = PermissionStatus(usageAccess = true, overlay = true, notification = true)
+        notificationRequest.grantImmediately = true
+
+        viewModel.requestNotification()
+
+        assertEquals(1, permissions.calls, "the grant is only visible after a re-read")
+        assertTrue(viewModel.state.value.permissionStatus.notification)
     }
 }

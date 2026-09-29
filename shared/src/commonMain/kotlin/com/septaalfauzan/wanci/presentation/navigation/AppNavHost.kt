@@ -95,6 +95,7 @@ fun AppNavHost(
                     useCases = deps.useCases,
                     permissionStatusProvider = deps.permissionStatusProvider,
                     permissionNavigator = deps.permissionNavigator,
+                    notificationPermissionRequest = deps.notificationPermissionRequest,
                 )
             }
             OnboardingScreen(

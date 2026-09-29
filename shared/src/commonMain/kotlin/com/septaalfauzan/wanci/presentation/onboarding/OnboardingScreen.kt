@@ -55,10 +55,10 @@ fun OnboardingScreen(
             onClick = viewModel::requestOverlay,
         )
         PermissionRow(
-            title = "Accessibility",
-            detail = "Detect the app currently in the foreground.",
-            granted = state.permissionStatus.accessibility,
-            onClick = viewModel::requestAccessibility,
+            title = "Notifications",
+            detail = "Get reminded when an app hits its limit.",
+            granted = state.permissionStatus.notification,
+            onClick = viewModel::requestNotification,
         )
         Spacer(Modifier.height(32.dp))
 

@@ -2,6 +2,7 @@ package com.septaalfauzan.wanci.presentation.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
 import com.septaalfauzan.wanci.domain.PermissionNavigator
 import com.septaalfauzan.wanci.domain.PermissionStatus
 import com.septaalfauzan.wanci.domain.PermissionStatusProvider
@@ -30,6 +31,8 @@ class OnboardingViewModel(
     private val useCases: WanciUseCases,
     private val permissionStatusProvider: PermissionStatusProvider,
     private val permissionNavigator: PermissionNavigator,
+    private val notificationPermissionRequest: NotificationPermissionRequest,
+    private val startMonitoring: () -> Unit = {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(OnboardingUiState())
@@ -51,12 +54,17 @@ class OnboardingViewModel(
 
     fun requestOverlay() = permissionNavigator.openOverlay()
 
-    fun requestAccessibility() = permissionNavigator.openAccessibility()
+    fun requestNotification() = notificationPermissionRequest.request { refresh() }
 
     fun completeOnboarding(onDone: () -> Unit) {
         viewModelScope.launch {
             _state.value = _state.value.copy(saving = true)
             useCases.putSyncValue("onboardingComplete", "true")
+            // Started here, not from the dashboard: onboarding is the one moment the three
+            // permissions are known to be granted, and the service has to be alive before the user
+            // leaves the flow. The persisted flag above is what makes it idempotent for the
+            // `MainActivity` start path.
+            startMonitoring()
             onDone()
         }
     }
