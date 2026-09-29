@@ -5,6 +5,7 @@ package com.septaalfauzan.wanci
 import com.septaalfauzan.wanci.data.local.TodayKey
 import com.septaalfauzan.wanci.monitoring.MonitoringCore
 import com.septaalfauzan.wanci.monitoring.MonotonicClock
+import com.septaalfauzan.wanci.monitoring.SessionSnapshot
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -50,13 +51,17 @@ class MonitoringCoreTest {
         addMonitoredAppBlocking(YOUTUBE, "YouTube", 30)
     }
 
-    private fun TestScope.core(repository: FakeRepository) = MonitoringCore(
+    private fun TestScope.core(
+        repository: FakeRepository,
+        onSessionChanged: ((SessionSnapshot?) -> Unit)? = null,
+    ) = MonitoringCore(
         repository = repository,
         todayKey = today,
         selfPackageName = selfPkg,
         clock = MonotonicClock { currentTime },
         scope = this,
         onOverlayDecision = { decisions += it },
+        onSessionChanged = onSessionChanged,
     ).apply {
         // The core is inert until a service attaches it, exactly as AppContainer builds it. A
         // test that skipped this would watch a core that ignores every event and pass vacuously.
@@ -276,5 +281,78 @@ class MonitoringCoreTest {
         advanceTimeBy(1_800_000L)
         runCurrent()
         assertEquals(1, decisions.size, "the service can reconnect to the same core")
+    }
+
+    @Test
+    fun sessionOpenedFiresTheSnapshot() = runTest {
+        val repo = repository()
+        repo.recordUsageSeconds(INSTAGRAM, 600L, today.todayIso())
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+
+        assertEquals(1, seen.size)
+        val snapshot = seen[0]
+        assertNotNull(snapshot)
+        assertEquals(INSTAGRAM, snapshot.packageName)
+        assertEquals("Instagram", snapshot.appName)
+        assertEquals(600L, snapshot.storedSeconds)
+        assertEquals(1_800L, snapshot.limitSeconds)
+        // Zero elapsed, so the live total is exactly the stored total: liveSeconds is a running
+        // total that already includes today's earlier usage, not just time spent in this session.
+        assertEquals(600L, snapshot.liveSeconds(currentTime))
+    }
+
+    @Test
+    fun anOverLimitEntryStillFiresTheSnapshot() = runTest {
+        val repo = repository()
+        repo.recordUsageSeconds(INSTAGRAM, 30 * 60L, today.todayIso())
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+
+        assertEquals(1, seen.size, "the immediate over-limit branch must not swallow the open")
+        assertEquals(1_800L, seen[0]!!.storedSeconds)
+    }
+
+    @Test
+    fun sessionClosedFiresNull() = runTest {
+        val repo = repository()
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        advanceTimeBy(20_000L)
+        core.onForegroundChange(LAUNCHER)
+
+        assertEquals(listOf(true, false), seen.map { it != null })
+    }
+
+    @Test
+    fun aCloseWithNoOpenSessionFiresNothing() = runTest {
+        val repo = repository()
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(LAUNCHER)
+        advanceTimeBy(1_000L)
+        core.onForegroundChange(LAUNCHER)
+
+        assertTrue(seen.isEmpty(), "no session was open, so nothing changed")
+    }
+
+    @Test
+    fun aSubSecondCloseStillFiresTheClose() = runTest {
+        val repo = repository()
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        core.onForegroundChange(LAUNCHER)
+
+        assertEquals(listOf(true, false), seen.map { it != null }, "zero elapsed is still a state change")
+        assertTrue(repo.usage.value.isEmpty())
     }
 }

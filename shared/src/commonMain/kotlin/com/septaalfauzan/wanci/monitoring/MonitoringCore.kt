@@ -50,6 +50,15 @@ class MonitoringCore(
     private val clock: MonotonicClock,
     private val scope: CoroutineScope,
     private val onOverlayDecision: (OverlayDecision) -> Unit,
+    /**
+     * Published whenever the core's session changes: a non-null snapshot when a session opens, and
+     * `null` when one closes. Defaulted to `null` so every existing construction site — and the
+     * whole existing test suite — keeps compiling unchanged.
+     *
+     * Not fired by [detach]: the service is going away and its notification with it, so a close
+     * there would be reported to a listener that is already being torn down.
+     */
+    private val onSessionChanged: ((SessionSnapshot?) -> Unit)? = null,
     private val tickIntervalMillis: Long = 1_000L,
 ) {
     data class OverlayDecision(
@@ -71,6 +80,9 @@ class MonitoringCore(
 
         fun toDecision(liveSeconds: Long) =
             OverlayDecision(packageName, appName, liveSeconds, limitSeconds)
+
+        fun toSnapshot() =
+            SessionSnapshot(packageName, appName, startedAtMillis, storedSeconds, limitSeconds)
     }
 
     private var currentSession: Session? = null
@@ -117,6 +129,9 @@ class MonitoringCore(
         closeCurrentSession(now)
         val session = createSession(packageName, now) ?: return
         currentSession = session
+        // Published before the over-limit check, so the one-shot branch below cannot swallow the
+        // open. A consumer that shows a running total has to hear about an over-limit entry too.
+        onSessionChanged?.invoke(session.toSnapshot())
 
         val live = session.liveSeconds(now)
         if (LimitChecker.exceeds(live, session.limitSeconds)) {
@@ -135,6 +150,10 @@ class MonitoringCore(
         tickJob = null
         val session = currentSession ?: return
         currentSession = null
+        // Fires even when nothing is written below: a session that closed after zero elapsed
+        // seconds is still a state change, and a consumer mirroring "an app is open" has to hear
+        // about it or it would show an app that is no longer in the foreground.
+        onSessionChanged?.invoke(null)
         val elapsed = (now - session.startedAtMillis) / 1000
         if (elapsed <= 0L) return
         try {
