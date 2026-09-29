@@ -108,7 +108,9 @@ Append to `MonitoringCoreTest.kt`, inside `class MonitoringCoreTest`:
         assertEquals("Instagram", snapshot.appName)
         assertEquals(600L, snapshot.storedSeconds)
         assertEquals(1_800L, snapshot.limitSeconds)
-        assertEquals(0L, snapshot.liveSeconds(currentTime))
+        // Zero elapsed, so the live total is exactly the stored total: liveSeconds is a running
+        // total, not the amount this session has added.
+        assertEquals(600L, snapshot.liveSeconds(currentTime))
     }
 
     @Test
