@@ -778,6 +778,31 @@ In `onboarding/OnboardingScreen.kt`, replace the accessibility `PermissionRow` b
         )
 ```
 
+- [ ] **Step 3b: Surface a failed onboarding save**
+
+`OnboardingUiState.saveFailed` is set when the `onboardingComplete` write throws, but nothing
+renders it. The write is the only record that onboarding finished, so swallowing it means the next
+launch shows onboarding again and nothing is ever monitored — an infinite silent tap. The retry is
+safe (idempotent upsert of one key), so the user just has to be able to see that they should.
+
+In `onboarding/OnboardingScreen.kt`, below the permission rows and above the continue button,
+render the error. Match the existing text/error styling already used elsewhere in this screen or
+its siblings — do not invent a new style:
+
+```kotlin
+        if (state.saveFailed) {
+            Text(
+                text = "Could not save. Check your storage and try again.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+```
+
+Note `state.saving` has no reader either. Bind it to the continue button's `enabled` only if
+`WanciButton` already accepts an `enabled` parameter; if it does not, leave `saving` alone rather
+than widening this task into a component change.
+
 - [ ] **Step 4: Compile the shared module**
 
 Run: `./gradlew :shared:compileKotlinAndroid`
