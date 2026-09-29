@@ -738,15 +738,18 @@ data class WanciAppDependencies(
     val todayKey: TodayKey,
     val permissionStatusProvider: PermissionStatusProvider,
     val permissionNavigator: PermissionNavigator,
-    val installedAppsProvider: InstalledAppsProvider,
-    val installedAppCheck: InstalledAppCheck,
     /**
      * `POST_NOTIFICATIONS` is a runtime dialog on API 33+, so the host owns the launcher and common
      * code only sees the request shape. Answering it re-reads the status snapshot.
+     *
+     * Placed here by Task 3, ahead of `installedAppsProvider`, not where this step originally
+     * showed it. Task 4 must not move it.
      */
     val notificationPermissionRequest: NotificationPermissionRequest,
     /** Starts the monitoring foreground service. Called once, when onboarding completes. */
     val startMonitoring: () -> Unit,
+    val installedAppsProvider: InstalledAppsProvider,
+    val installedAppCheck: InstalledAppCheck,
     val deepLink: DeepLinkRequest? = null,
 )
 ```

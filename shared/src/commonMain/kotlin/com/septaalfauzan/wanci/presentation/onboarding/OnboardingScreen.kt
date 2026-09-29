@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.septaalfauzan.wanci.presentation.theme.WanciButton
+import com.septaalfauzan.wanci.presentation.theme.WanciTokens
 import com.septaalfauzan.wanci.presentation.theme.WanciOutlinedButton
 
 @Composable
@@ -30,7 +33,10 @@ fun OnboardingScreen(
     LaunchedEffect(Unit) { viewModel.refresh() }
 
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
+        // Scrollable because the notice and the button are both below the fold at a large font
+        // scale, and a centred column that cannot scroll strands the user on a screen whose only
+        // exit is off-screen.
+        modifier = modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -63,15 +69,11 @@ fun OnboardingScreen(
         Spacer(Modifier.height(32.dp))
 
         if (state.saveFailed) {
-            Text(
-                text = "Could not save. Check your storage and try again.",
-                style = MaterialTheme.typography.bodySmall,
-                // onSurfaceVariant, not the error role: this matches every other inline notice in
-                // the app, and the sentence already carries the failure on its own. Red here would
-                // make onboarding the only screen that shouts.
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            OnboardingNotice(
+                label = "Not saved",
+                message = "Wanci couldn't finish setting up. Nothing was changed — try again.",
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(WanciTokens.spacing.md))
         }
 
         if (state.permissionStatus.allGranted) {
@@ -82,7 +84,9 @@ fun OnboardingScreen(
                 enabled = !state.saving,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("You're ready")
+                // The label is the in-flight signal, as on the set-limit screen: the button is
+                // disabled *and* says what is happening, so the wait is not silent.
+                Text(if (state.saving) "Saving…" else "You're ready")
             }
         } else {
             WanciOutlinedButton(
@@ -92,6 +96,26 @@ fun OnboardingScreen(
                 Text("Check permissions")
             }
         }
+    }
+}
+
+/**
+ * A label plus its message, for the same reason [SetLimitScreen]'s notice is built this way: a
+ * notice carried by colour alone disappears for a user who cannot see it, and the label is what
+ * says which kind of failure this is. The scheme here is deliberately achromatic, so
+ * [androidx.compose.material3.MaterialTheme.colorScheme.error] is a heavier onSurface and would
+ * add no signal the sentence does not already carry.
+ */
+@Composable
+private fun OnboardingNotice(label: String, message: String) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(WanciTokens.spacing.xxs))
+        Text(
+            message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
