@@ -5,7 +5,7 @@ import android.app.usage.UsageEvents
 /**
  * One `UsageEvents.Event`, reduced to the two fields the parser reads. A local type rather than
  * the platform class so the parser can be host-tested without a `UsageStatsManager` or Robolectric
- * — [MonitoringForegroundService] does the reduction in one place.
+ * — the monitoring service does the reduction in one place, when it is built.
  */
 internal data class RawUsageEvent(
     val eventType: Int,
@@ -24,9 +24,12 @@ internal data class RawUsageEvent(
  * launcher emits no `ACTIVITY_RESUMED`, so without the pause the previous app would look like it
  * was still in the foreground until the user came back.
  *
- * `ACTIVITY_RESUMED` is API 29+ and `MOVE_TO_FOREGROUND` is its API 28 ancestor; both are handled
- * because `minSdk` is 28. They are compile-time constants, so the newer name inlines to a literal
- * on an API 28 device rather than failing to link.
+ * `ACTIVITY_RESUMED` and `MOVE_TO_FOREGROUND` are two names for the same constant (1), and
+ * `ACTIVITY_PAUSED` and `MOVE_TO_BACKGROUND` likewise (2) — `api-versions.xml` dates the former
+ * pair to API 29 and the latter to API 1. Only one of each pair appears in the `when` above, so
+ * both branches are listed for the reader, not because two types are handled. Neither is ever
+ * resolved at runtime: both are `static final int` with a ConstantValue, so they inline to
+ * literals at compile time.
  *
  * `SCREEN_NON_INTERACTIVE` (16) collides with nothing — `MOVE_TO_FOREGROUND` is 1 — so it reaches
  * the `else` branch and is ignored. That is what a screen-off event should do: it carries no

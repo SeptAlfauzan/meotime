@@ -117,5 +117,10 @@ class ForegroundEventParserTest {
     fun aWindowWhereTheAppLeftCarriesSignal() {
         assertTrue(hasForegroundSignal(listOf(resumed("com.a"), paused("com.a"))))
         assertTrue(hasForegroundSignal(listOf(legacyForeground("com.a"))))
+        // The poll loop queries per window, so the resume that opened the session is usually in
+        // the *previous* window and this one holds nothing but the pause. Without this case a
+        // window of exactly that shape would read as "nothing happened" and leave the session
+        // accruing to a foreground app the user has already left.
+        assertTrue(hasForegroundSignal(listOf(paused("com.a"))))
     }
 }

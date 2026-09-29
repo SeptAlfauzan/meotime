@@ -16,7 +16,7 @@
 - minSdk 28, targetSdk 37, compileSdk 37, JVM target 11. API 34+ `foregroundServiceType="specialUse"` with the `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` property.
 - `UsageEvents.Event` constants are compile-time `static final int`s, so referencing `ACTIVITY_RESUMED` (API 29+) from a `minSdk 28` module is safe — the value is inlined at compile time and the constant is never read at runtime on API 28.
 - **`UsageEvents.Event.SCREEN_NON_INTERACTIVE` is `16` and `MOVE_TO_FOREGROUND` is `1` — they do not collide.** (An earlier draft of this plan claimed they shared a value; verified against `android-37.0` with `javap -constants` on `android.app.usage.UsageEvents$Event`, which reports `ACTIVITY_RESUMED = 1`, `ACTIVITY_PAUSED = 2`, `MOVE_TO_FOREGROUND = 1`, `MOVE_TO_BACKGROUND = 2`, `SCREEN_INTERACTIVE = 15`, `SCREEN_NON_INTERACTIVE = 16`. `MOVE_TO_FOREGROUND`/`MOVE_TO_BACKGROUND` are plain aliases of `ACTIVITY_RESUMED`/`ACTIVITY_PAUSED`.) So `16` falls through to the `else` branch and is **ignored** — which is the correct outcome, not a compromise: a real screen-off event carries a null package, and reading it as a foreground event would attribute the user's last app with usage while the screen is off. Screen-off is closed by the `SCREEN_OFF` broadcast, which is unambiguous. `ForegroundEventParserTest.typeSixteenIsIgnoredSoScreenOffIsNotCreditedAsUsage` pins this.
-- Foreground event types handled: `MOVE_TO_FOREGROUND` (16), `ACTIVITY_RESUMED` (1). Background event types handled: `MOVE_TO_BACKGROUND` (17), `ACTIVITY_PAUSED` (2). Everything else is ignored.
+- Foreground signal: `ACTIVITY_RESUMED` (1), which is the same value as `MOVE_TO_FOREGROUND` (1). Background signal: `ACTIVITY_PAUSED` (2), the same value as `MOVE_TO_BACKGROUND` (2). The old and new names are one constant each, not two types, and both are compile-time constants that never resolve at runtime. Everything else is ignored.
 - No new source of truth: session boundaries use the core's own `MonotonicClock` at processing time. UsageStats event timestamps are read for nothing.
 - Usage is written exactly once per session, at close. No reconcile, no catch-up after service death.
 - Poll cadence 1s while screen is on; zero polls while the screen is dark. Notification rollover cadence 60s, only while a session is open.
@@ -981,6 +981,11 @@ class ForegroundEventParserTest {
     fun aWindowWhereTheAppLeftCarriesSignal() {
         assertTrue(hasForegroundSignal(listOf(resumed("com.a"), paused("com.a"))))
         assertTrue(hasForegroundSignal(listOf(legacyForeground("com.a"))))
+        // The poll loop queries per window, so the resume that opened the session is usually in
+        // the *previous* window and this one holds nothing but the pause. Without this case a
+        // window of exactly that shape would read as "nothing happened" and leave the session
+        // accruing to a foreground app the user has already left.
+        assertTrue(hasForegroundSignal(listOf(paused("com.a"))))
     }
 }
 ```
@@ -1022,9 +1027,12 @@ internal data class RawUsageEvent(
  * launcher emits no `ACTIVITY_RESUMED`, so without the pause the previous app would look like it
  * was still in the foreground until the user came back.
  *
- * `ACTIVITY_RESUMED` is API 29+ and `MOVE_TO_FOREGROUND` is its API 28 ancestor; both are handled
- * because `minSdk` is 28. They are compile-time constants, so the newer name inlines to a literal
- * on an API 28 device rather than failing to link.
+ * `ACTIVITY_RESUMED` and `MOVE_TO_FOREGROUND` are two names for the same constant (1), and
+ * `ACTIVITY_PAUSED` and `MOVE_TO_BACKGROUND` likewise (2) — `api-versions.xml` dates the former
+ * pair to API 29 and the latter to API 1. Only one of each pair appears in the `when` above, so
+ * both branches are listed for the reader, not because two types are handled. Neither is ever
+ * resolved at runtime: both are `static final int` with a ConstantValue, so they inline to
+ * literals at compile time.
  *
  * `SCREEN_NON_INTERACTIVE` (16) collides with nothing — `MOVE_TO_FOREGROUND` is 1 — so it reaches
  * the `else` branch and is ignored. That is what a screen-off event should do: it carries no
