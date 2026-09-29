@@ -15,7 +15,7 @@
 - Package root: `com.septaalfauzan.wanci`. Shared code: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/`. Android bindings: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/`.
 - minSdk 28, targetSdk 37, compileSdk 37, JVM target 11. API 34+ `foregroundServiceType="specialUse"` with the `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` property.
 - `UsageEvents.Event` constants are compile-time `static final int`s, so referencing `ACTIVITY_RESUMED` (API 29+) from a `minSdk 28` module is safe — the value is inlined at compile time and the constant is never read at runtime on API 28.
-- **`UsageEvents.Event.SCREEN_NON_INTERACTIVE` is `16`, the same value as `MOVE_TO_FOREGROUND`.** It must never be handled as a background signal or it cancels out the foreground event it collides with. Polling is screen-gated instead, which is why it is not needed.
+- **`UsageEvents.Event.SCREEN_NON_INTERACTIVE` is `16`, the same value as `MOVE_TO_FOREGROUND`.** The two are indistinguishable by type, so `16` is read as **foreground** and must never be handled as a background signal. Screen-off is closed by the `SCREEN_OFF` broadcast instead, which is unambiguous. `ForegroundEventParserTest.typeSixteenIsTreatedAsForegroundAndUnwindsAPrecedingPause` pins this decision.
 - Foreground event types handled: `MOVE_TO_FOREGROUND` (16), `ACTIVITY_RESUMED` (1). Background event types handled: `MOVE_TO_BACKGROUND` (17), `ACTIVITY_PAUSED` (2). Everything else is ignored.
 - No new source of truth: session boundaries use the core's own `MonotonicClock` at processing time. UsageStats event timestamps are read for nothing.
 - Usage is written exactly once per session, at close. No reconcile, no catch-up after service death.
@@ -898,15 +898,19 @@ class ForegroundEventParserTest {
         assertEquals("com.b", parseForegroundPackage(events))
     }
     @Test
-    fun screenNonInteractiveIsNotTreatedAsBackground() {
-        // SCREEN_NON_INTERACTIVE is 16, the same value as MOVE_TO_FOREGROUND. Handling it as a
-        // background signal would cancel the foreground event it collides with.
+    fun typeSixteenIsTreatedAsForegroundAndUnwindsAPrecedingPause() {
+        // SCREEN_NON_INTERACTIVE and MOVE_TO_FOREGROUND are both 16 and the type check cannot tell
+        // them apart. This test pins the actual decision rather than the hoped-for one: 16 is read
+        // as foreground, so a screen-off event carrying a null package unwinds the pause that
+        // preceded it. Screen-off is closed by the broadcast, not by this event, so the ambiguity
+        // costs nothing.
         val events = listOf(
             resumed("com.a"),
+            paused("com.a"),
             RawUsageEvent(UsageEvents.Event.SCREEN_NON_INTERACTIVE, null),
         )
 
-        assertEquals("com.a", parseForegroundPackage(events))
+        assertNull(parseForegroundPackage(events))
     }
 
     @Test
@@ -974,10 +978,12 @@ internal data class RawUsageEvent(
  * because `minSdk` is 28. They are compile-time constants, so the newer name inlines to a literal
  * on an API 28 device rather than failing to link.
  *
- * `SCREEN_NON_INTERACTIVE` is deliberately absent. It shares the value 16 with
- * `MOVE_TO_FOREGROUND`, so treating it as a background signal would immediately undo the
- * foreground event it collides with. The poll loop is gated on the screen being on instead, which
- * is a stronger guarantee than a notification we would have to parse.
+ * `SCREEN_NON_INTERACTIVE` is deliberately absent from the background branch. It shares the value
+ * 16 with `MOVE_TO_FOREGROUND`, so the type check cannot tell them apart and reading it as a
+ * background signal would let it cancel the foreground event it collides with. It is therefore
+ * read as foreground, which for a real screen-off event means it resolves to whatever package that
+ * event carries — harmless, because the poll loop is gated on the screen being on and the
+ * `SCREEN_OFF` broadcast closes the session through a channel that cannot be ambiguous.
  */
 internal fun parseForegroundPackage(events: List<RawUsageEvent>): String? {
     var foreground: String? = null
@@ -1007,7 +1013,7 @@ internal fun parseForegroundPackage(events: List<RawUsageEvent>): String? {
  *
  * `SCREEN_NON_INTERACTIVE` (16) counts as a signal here, because it *is* the same value as
  * `MOVE_TO_FOREGROUND` and the type check cannot tell them apart. That is exactly why the parser
- * must not treat it as a background event: doing so would let it cancel the foreground event it
+ * must not read it as a background event: doing so would let it cancel the foreground event it
  * collides with. Screen-off is handled by a broadcast instead, which is unambiguous.
  */
 internal fun hasForegroundSignal(events: List<RawUsageEvent>): Boolean =
