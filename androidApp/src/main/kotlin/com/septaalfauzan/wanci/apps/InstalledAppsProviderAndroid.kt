@@ -10,7 +10,7 @@ import com.septaalfauzan.wanci.domain.InstalledAppsProvider
 
 /**
  * Launcher-visible apps, which is the closest thing Android offers to "apps the user can limit":
- * the accessibility service can only ever see an app that was started somehow, and a
+ * the monitoring service can only ever see an app that was started somehow, and a
  * non-launchable app is not something a user picks on the add-app screen.
  *
  * Wanci itself is filtered out, and one entry is kept per package so a device with several

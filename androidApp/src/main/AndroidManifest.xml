@@ -9,6 +9,10 @@
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <queries>
         <intent>
@@ -35,15 +39,27 @@
             </intent-filter>
         </activity>
 
+        <!--
+            specialUse, not dataSync: this is continuous monitoring, not a transfer job, and API 34+
+            requires the declared type to be accurate. The subtype property below is the answer to
+            a Play review question about why the type was chosen.
+        -->
         <service
             android:exported="false"
-            android:name=".monitoring.MonitoringAccessibilityService"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
+            android:name=".monitoring.MonitoringForegroundService"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing screen-time monitoring so app limits are enforced without the app open." />
         </service>
+
+        <receiver
+            android:exported="true"
+            android:name=".monitoring.BootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

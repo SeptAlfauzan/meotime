@@ -22,9 +22,10 @@ import kotlinx.coroutines.launch
  * cost.
  *
  * Usage is written exactly once, when the session closes. Nothing is written during a session, so
- * an open session is unpersisted and a process death loses it. That is a deliberate trade: the
- * `UsageStatsManager` reconcile this replaces was the previous answer to that loss and it could not
- * cover it, because it only ever totalled packages it saw *close*.
+ * an open session is unpersisted and a process death loses it. That is a deliberate trade, and
+ * `UsageStatsManager` is read again since the 2026-09-28 migration — for foreground detection only.
+ * It is not a second account of usage: the core still receives only `onForegroundChange` and still
+ * writes once, at close.
  *
  * Five things are true here that the code does not spell out:
  *
@@ -94,15 +95,15 @@ class MonitoringCore(
 
     /**
      * Begins accepting foreground changes. The core is a process-wide singleton and Android
-     * reconnects the accessibility service to the same process, so [detach] has to be reversible
-     * rather than terminal. Called from `onServiceConnected`.
+     * restarts the foreground service in the same process, so [detach] has to be reversible
+     * rather than terminal. Called from `onStartCommand`.
      */
     fun attach() {
         detached = false
     }
 
     /**
-     * Stops everything immediately and synchronously, for `AccessibilityService.onDestroy`,
+     * Stops everything immediately and synchronously, for `Service.onDestroy`,
      * which cannot wait for a coroutine.
      *
      * Cancelling the ticker *before returning* is the point: once this returns, no tick can fire,
@@ -120,10 +121,10 @@ class MonitoringCore(
 
     suspend fun onForegroundChange(packageName: String?) {
         if (detached) return
-        // The accessibility service delivers a window-state change for activity changes, in-app
-        // dialogs and permission prompts on the same package. Those are not switches, so they must
-        // not reach the close path at all: closing would persist a partial session and reopening
-        // would restart the clock, and the run would become two writes instead of one.
+        // Every foreground source — a window-state change, a usage event, an activity change, an
+        // in-app dialog, a permission prompt — repeats the same package for what is not a switch,
+        // so those must not reach the close path at all: closing would persist a partial session
+        // and reopening would restart the clock, and the run would become two writes instead of one.
         if (packageName == currentSession?.packageName) return
         val now = clock.uptimeMillis()
         closeCurrentSession(now)

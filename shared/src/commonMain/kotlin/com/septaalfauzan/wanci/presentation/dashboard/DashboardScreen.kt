@@ -44,7 +44,7 @@ import com.septaalfauzan.wanci.presentation.theme.WanciTokens
  * Today's monitored apps.
  *
  * Usage is live: the rows come from [DashboardViewModel.state], which re-derives on every emission
- * of the observed app list, so a minute recorded by the accessibility service shows up here while
+ * of the observed app list, so a minute recorded by the monitoring service shows up here while
  * the screen is open and every row returns to 0 at midnight. Nothing on this screen polls or owns
  * a clock.
  *
