@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.PowerManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -218,11 +219,21 @@ class MonitoringForegroundService : Service() {
                 // is what `myGeneration` on the enqueue is for.
                 if (myGeneration != generation.get()) return@launch
                 watermarkMillis = now
+                // `continue`, never `return@launch`, for both "nothing to do this tick" branches.
+                // `return@launch` leaves the whole coroutine, so the loop died on its first quiet
+                // window — and a quiet window is the normal state of a phone sitting on the home
+                // screen, so the loop died within about a second of starting and then never ran
+                // again, because `pollJob` still held a finished Job and `startPolling` returns
+                // early on a non-null one. The same trap sat on the dedupe below: an in-app
+                // navigation emits pause+resume for one package, that reduces to the package
+                // already in `lastForeground`, and the old code ended the loop for it too. Only the
+                // generation check above is a genuine exit, and that one is `return@launch` because
+                // a bumped generation means this loop is obsolete, not that this tick is a no-op.
                 when (window) {
-                    PollWindow.NoSignal -> return@launch
+                    PollWindow.NoSignal -> continue
                     is PollWindow.Foreground -> {
                         val next = window.packageName
-                        if (next == lastForeground) return@launch
+                        if (next == lastForeground) continue
                         lastForeground = next
                         enqueueForegroundChange(next, myGeneration)
                     }
@@ -344,7 +355,27 @@ class MonitoringForegroundService : Service() {
          * A null-returning receiver is a query, not a subscription: nothing is registered.
          */
         @Suppress("DEPRECATION")
+        /**
+         * Whether the screen is currently on, asked of [PowerManager] rather than read off the
+         * sticky [Intent.ACTION_SCREEN_ON] broadcast.
+         *
+         * The sticky read looks equivalent and is not. `ACTION_SCREEN_ON` is only *sent* on a
+         * screen-on transition, and it is not a sticky broadcast the platform guarantees to keep:
+         * on modern Android — verified on API 36, where it returned null with the screen lit —
+         * `registerReceiver(null, ACTION_SCREEN_ON)` yields null unless a transition happened to
+         * occur recently. This is read in `onCreate`, and every ordinary way into this service
+         * starts it with the screen already on: the user opening Wanci, a force-stop recovery,
+         * `MainActivity.onCreate`, a reboot that lands on a charging screen. So the sticky read
+         * reported "off" in precisely the cases that matter, `onStartCommand`'s `if (screenOn)`
+         * gate skipped `startPolling()`, and the service ran as a live foreground notification
+         * that never detected a single app — a silent, total failure of the only feature it has,
+         * with no crash and nothing in the shade to say so.
+         *
+         * [PowerManager.isInteractive] is the supported query and is true exactly when the screen
+         * is on. Transitions still arrive on the runtime receiver; only this initial read needed
+         * the platform.
+         */
         private fun isScreenOn(context: Context): Boolean =
-            context.registerReceiver(null, IntentFilter(Intent.ACTION_SCREEN_ON)) != null
+            (context.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
     }
 }
