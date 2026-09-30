@@ -15,6 +15,18 @@ fun interface PermissionStatusProvider {
 interface PermissionNavigator {
     fun openUsageAccess()
     fun openOverlay()
+
+    /**
+     * Opens this app's own notification settings page.
+     *
+     * A separate method from [openUsageAccess] and [openOverlay] because `POST_NOTIFICATIONS` has a
+     * failure mode those two do not: after two denials the system stops showing the request dialog
+     * altogether, so re-requesting is a request it silently ignores. Onboarding then shows a
+     * "Grant" button that can never work and an `allGranted` that can never become true — a dead
+     * end with no exit except the user finding Settings by themselves. This is the only route
+     * that still works once the dialog is gone.
+     */
+    fun openNotificationSettings()
 }
 
 /**

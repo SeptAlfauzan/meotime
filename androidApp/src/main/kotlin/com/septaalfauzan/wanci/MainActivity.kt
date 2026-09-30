@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.septaalfauzan.wanci.permission.PermissionActions
 import com.septaalfauzan.wanci.permission.PermissionChecks
 import com.septaalfauzan.wanci.presentation.App
 import com.septaalfauzan.wanci.presentation.DeepLinkRequest
@@ -61,9 +62,31 @@ class MainActivity : ComponentActivity() {
      */
     private var onNotificationAnswer: (() -> Unit)? = null
 
+    /**
+     * Whether this Activity has already seen the platform answer a notification request.
+     *
+     * The platform offers no way to ask "has this permission ever been requested" — only
+     * [shouldShowRequestPermissionRationale], which is `false` both for a permission nobody has
+     * asked about yet and for one the user has used up the dialog on. This is the disambiguator,
+     * and it is what keeps a fresh install's first tap on the real dialog: with the flag clear,
+     * only the never-asked case can be the reason the rationale is `false`, and the dialog is
+     * still available there.
+     *
+     * Per-Activity rather than persisted, and deliberately so. Persisting it would buy nothing: the
+     * most a lost flag can cost is one tap the system silently ignores after a process death, which
+     * a field cannot survive either. One wasted tap is a better price than a new on-disk store for
+     * one bit.
+     */
+    private var hasAskedForNotifications = false
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { onNotificationAnswer?.also { onNotificationAnswer = null }?.invoke() }
+    ) {
+        // Set on every answer, not only on the denials: the point of the flag is to record that
+        // the system has spoken once, and a silent answer speaks just as loudly as a denial.
+        hasAskedForNotifications = true
+        onNotificationAnswer?.also { onNotificationAnswer = null }?.invoke()
+    }
 
     private val permissionHost = object : NotificationPermissionHost {
         override fun requestNotificationPermission(onResult: () -> Unit) {
@@ -73,6 +96,27 @@ class MainActivity : ComponentActivity() {
                 // Nothing to ask: below API 33 the permission does not exist, and an already-granted
                 // permission is a fact the caller wants immediately rather than after a round trip.
                 onResult()
+                return
+            }
+            // After two denials the system stops showing the dialog and answers a launch
+            // immediately and silently, so asking again is a no-op: `allGranted` never becomes
+            // true and onboarding can never be completed at all. `shouldShowRequestPermissionRationale`
+            // is true only while the system would still show the dialog, so `false` — together with
+            // proof that it has already answered us once — is the signal that this request has to
+            // become a trip to Settings instead of another launch.
+            //
+            // The platform method rather than `ActivityCompat.shouldShowRequestPermissionRationale`:
+            // it is API 23 (checked against the SDK api-versions.xml) and minSdk is 28, so the
+            // compat wrapper would be a new dependency for a method this Activity already has.
+            if (hasAskedForNotifications &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+            ) {
+                // Routed straight to the navigator, not through the launcher, and deliberately
+                // without calling `onResult()`: the answer is a Settings page the user has not
+                // visited yet, so refreshing now would only re-render a grant that has not
+                // happened. Onboarding re-reads the status when the user comes back, via its own
+                // "Check permissions" action.
+                PermissionActions(this@MainActivity).openNotificationSettings()
                 return
             }
             onNotificationAnswer = onResult

@@ -40,6 +40,10 @@ private class RecordingPermissionNavigator : PermissionNavigator {
     override fun openOverlay() {
         opened += "overlay"
     }
+
+    override fun openNotificationSettings() {
+        opened += "notificationSettings"
+    }
 }
 
 private class FakeNotificationPermissionRequest : NotificationPermissionRequest {

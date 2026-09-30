@@ -20,6 +20,27 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
 /**
+ * One poll window's answer, as a closed set rather than an `Any?` sentinel.
+ *
+ * The poll loop has to tell three things apart — a package, "the foreground app went away", and
+ * "this window said nothing" — and the third only means something to the loop, not to the core.
+ * A sealed type says which is which at every use site, so the `null`-means-one-of-two and the
+ * `as String?` that went with encoding this as `Any?` plus a private identity object are both gone,
+ * and a new case cannot be added without the compiler pointing at the loop.
+ */
+private sealed interface PollWindow {
+    /** The window resolved to a package, or to `null` meaning the foreground app went away. */
+    data class Foreground(val packageName: String?) : PollWindow
+
+    /**
+     * "This window said nothing about the foreground" — not a package, and not the `null` that
+     * means "the foreground app went away". An object so it is compared by identity and can never
+     * collide with a real package name.
+     */
+    data object NoSignal : PollWindow
+}
+
+/**
  * Hosts the poll loop that makes Wanci work with the app closed.
  *
  * The trade this makes is explicit: Android's price for an always-alive process is a permanent
@@ -33,7 +54,10 @@ import kotlinx.coroutines.sync.withLock
  *
  * Every change funnels through [enqueueForegroundChange] and takes the core mutex, so the core's
  * single session is only ever advanced by one coroutine at a time, exactly as it was when an
- * accessibility service fed it.
+ * accessibility service fed it. The mutex alone is not sufficient — serialising a *stale* change
+ * behind a fresh one still applies it in the wrong order — so the poll also tags each change with
+ * the run that observed it and the change re-validates that tag under the lock. See
+ * [enqueueForegroundChange] for the interleaving.
  */
 class MonitoringForegroundService : Service() {
 
@@ -55,6 +79,9 @@ class MonitoringForegroundService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     screenOn = false
+                    // Enqueued before `stopPolling` and deliberately untagged, so that the bump
+                    // this same handler is about to make cannot retroactively void its own close.
+                    // The ordering argument is in [enqueueForegroundChange].
                     enqueueForegroundChange(null)
                     stopPolling()
                 }
@@ -80,17 +107,55 @@ class MonitoringForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val appContainer = container ?: return START_NOT_STICKY
-        appContainer.notificationController.start()
-        startForeground(
-            AndroidNotifier.NOTIFICATION_ID,
-            appContainer.notifier.latest(),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            } else {
-                0
-            },
-        )
+        val appContainer = container
+        if (appContainer == null) {
+            // Declining the start is not enough on its own. `startForegroundService` bought this
+            // service a few seconds' grace in which to call `startForeground`, and returning from
+            // `onStartCommand` without having done so is
+            // ForegroundServiceDidNotStartInTimeException — which kills the process rather than
+            // just refusing the start, taking every other running piece of Wanci with it.
+            // `stopSelf` withdraws the pending start inside that window, so the requirement is
+            // dropped instead of failed. There is no notification to post in this branch — the
+            // notifier lives on the container that is gone — so stopping is the only move left.
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        // Seed the notification only the first time this process publishes one. `startMonitoring`
+        // is called from onboarding, from the boot receiver and from `MainActivity.onCreate`, so
+        // this runs repeatedly *while a session is open*; `NotificationController.start()`
+        // republishes `Idle` and cancels the minute rollover, and because the poll's
+        // `next == lastForeground` dedupe then swallows the next real change, the shade would sit
+        // on "Monitoring active" for a live session that the core is still counting.
+        //
+        // The guard is the notifier's own published flag rather than a field on the service,
+        // because that is what makes the check honest across a process death: the notifier is
+        // rebuilt with the container, so after a restart the flag reads false and this seeds
+        // `Idle` — which is the truthful state, since a process death takes the unpersisted
+        // session with it and there is nothing truer to re-publish.
+        if (!appContainer.notifier.published) appContainer.notificationController.start()
+        val notification = appContainer.notifier.latest()
+        // Two overloads, gated on the SDK level — gating only the *type constant* would not help.
+        // The three-argument startForeground(id, notification, type) is API 29 (checked against the
+        // SDK's api-versions.xml) and minSdk is 28, so calling it unconditionally is a
+        // NoSuchMethodError thrown from inside `onStartCommand` on Android 9: the service never
+        // comes up at all. And the type argument cannot be passed separately, because the overload
+        // that carries it is the one that does not exist yet — the platform had no foreground
+        // service types before 29, so below that there is nothing to send and the two-argument form
+        // is the only call that can be made. `assembleDebug` does not run lint, so an unguarded call
+        // here compiles green.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                AndroidNotifier.NOTIFICATION_ID,
+                notification,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                },
+            )
+        } else {
+            startForeground(AndroidNotifier.NOTIFICATION_ID, notification)
+        }
         appContainer.core.attach()
         registerScreenReceiver()
         if (screenOn) startPolling()
@@ -126,25 +191,42 @@ class MonitoringForegroundService : Service() {
             while (isActive && myGeneration == generation.get()) {
                 delay(POLL_INTERVAL_MILLIS)
                 val now = System.currentTimeMillis()
-                val packageName = try {
+                val window = try {
                     queryForegroundPackage(watermarkMillis, now)
                 } catch (_: SecurityException) {
                     // Usage access was revoked from Settings while Wanci ran. The poll loop cannot
                     // recover on its own — there is nothing to poll with — and retrying would spin.
                     // The notification says what happened; onboarding is the way back.
                     appContainer.notificationController.onUsageAccessRevoked()
+                    // Cleared on the way out because the field is the loop's liveness flag:
+                    // `startPolling` returns early on a non-null `pollJob`, so a finished Job left
+                    // behind here would read as a running one and make polling permanently dead
+                    // until an unrelated screen-off happened to null it. Nothing here can recover
+                    // the loop, but a later screen-on must at least be able to try. If a screen-on
+                    // races this assignment its own job is what `pollJob` ends up naming again and
+                    // this one is already finishing; the only window that leaves a live job
+                    // untracked is closed by the next `stopPolling`, whose generation bump the
+                    // loop's own guard turns into an exit.
+                    pollJob = null
                     return@launch
                 }
                 // The screen may have gone dark, or the service may have been destroyed, while the
                 // query was in flight. Its result describes a world that no longer exists: acting
-                // on it would open a session the core then accrues until the next event.
+                // on it would enqueue an open for a foreground that has already been closed. This
+                // check keeps that work out of the queue; it cannot by itself keep it out of the
+                // core, because the gap between here and the enqueued body is not covered — that
+                // is what `myGeneration` on the enqueue is for.
                 if (myGeneration != generation.get()) return@launch
                 watermarkMillis = now
-                if (packageName === NO_SIGNAL) return@launch
-                val next = packageName as String?
-                if (next == lastForeground) return@launch
-                lastForeground = next
-                enqueueForegroundChange(next)
+                when (window) {
+                    PollWindow.NoSignal -> return@launch
+                    is PollWindow.Foreground -> {
+                        val next = window.packageName
+                        if (next == lastForeground) return@launch
+                        lastForeground = next
+                        enqueueForegroundChange(next, myGeneration)
+                    }
+                }
             }
         }
     }
@@ -156,10 +238,14 @@ class MonitoringForegroundService : Service() {
     }
 
     /**
-     * The package in the foreground at the end of the window, `null` if the foreground app went
-     * away, or [NO_SIGNAL] if the window contained no foreground event at all.
+     * The package in the foreground at the end of the window, or a window that said nothing.
+     *
+     * [PollWindow] rather than a nullable string because `parseForegroundPackage` collapses two
+     * different answers into `null`, and only the signal check can tell them apart. Without it,
+     * every quiet second would close the session the user is in and the running total would
+     * restart from zero — the same bug in a different disguise.
      */
-    private fun queryForegroundPackage(from: Long, to: Long): Any? {
+    private fun queryForegroundPackage(from: Long, to: Long): PollWindow {
         val stats = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val usageEvents = stats.queryEvents(from, to)
         // `UsageEvents` is a cursor, not a collection: one reusable `Event` is filled in place and
@@ -172,18 +258,51 @@ class MonitoringForegroundService : Service() {
                 add(RawUsageEvent(event.eventType, event.packageName))
             }
         }
-        // Two nulls, one meaning. `parseForegroundPackage` cannot distinguish "the app left" from
-        // "nothing happened", so the signal check decides which of the two this window was. Without
-        // it, every quiet second would close the session the user is in and the running total would
-        // restart from zero — the same bug in a different disguise.
-        if (!hasForegroundSignal(events)) return NO_SIGNAL
-        return parseForegroundPackage(events)
+        if (!hasForegroundSignal(events)) return PollWindow.NoSignal
+        return PollWindow.Foreground(parseForegroundPackage(events))
     }
 
-    private fun enqueueForegroundChange(packageName: String?) {
+    /**
+     * Hands one foreground change to the core, serialised on the container's core mutex.
+     *
+     * [expectedGeneration] is the poll run the change was observed in, and `null` means
+     * "unconditional". It is re-checked *inside* the lock, immediately before the core is touched,
+     * because the generation check in the poll loop is not enough on its own and the gap it leaves
+     * is a silent mis-accounting bug — a session that bills the user for a dark screen:
+     *
+     *  1. The poll wakes, queries, and sees `com.foo`. It checks `myGeneration == generation` —
+     *     true — records `lastForeground`, and enqueues this change.
+     *  2. The enqueued body has not run yet: it is queued behind whoever holds the mutex, which
+     *     at that moment is typically a session close waiting on a database write.
+     *  3. `SCREEN_OFF` lands. It enqueues the close and bumps the generation, cancelling the job.
+     *  4. The close takes the lock and closes `com.foo`. So far correct.
+     *  5. The change from step 1 finally takes the lock and *opens* `com.foo` — after the close,
+     *     with the screen dark, and with polling already stopped, so nothing will ever close it.
+     *     It then accrues against `uptimeMillis` for as long as the screen stays off. The next
+     *     screen-on does not rescue it: `startPolling` resets `lastForeground` to `null`, so the
+     *     re-detected `com.foo` reaches the core's `packageName == currentSession` early-return
+     *     and the session is never closed at all.
+     *
+     * Re-checking under the lock collapses step 5. Between reading [generation] and calling into
+     * the core there is no suspension point, so the change either observes the pre-stop generation
+     * and is applied strictly before the close that follows it, or observes the post-stop
+     * generation and is dropped. Both orderings end with the session closed and nothing accruing
+     * in the dark.
+     *
+     * The screen-off close is deliberately left untagged. It is enqueued in the same `onReceive`
+     * that calls `stopPolling`, so every generation it could be given is already stale by the time
+     * its body runs: tagging it with the generation from before the bump drops it, and tagging it
+     * with the one after drops it too as soon as a `SCREEN_ON` follows. Untagged, it is the newest
+     * fact there is about the screen — and the mutex hands the lock out in order, so it is taken
+     * ahead of any change a later poll run could enqueue behind it.
+     */
+    private fun enqueueForegroundChange(packageName: String?, expectedGeneration: Long? = null) {
         val appContainer = container ?: return
         appContainer.scope.launch {
             appContainer.coreMutex.withLock {
+                if (expectedGeneration != null && expectedGeneration != generation.get()) {
+                    return@withLock
+                }
                 appContainer.core.onForegroundChange(packageName)
             }
         }
@@ -207,13 +326,6 @@ class MonitoringForegroundService : Service() {
 
     companion object {
         private const val POLL_INTERVAL_MILLIS = 1_000L
-
-        /**
-         * "This window said nothing about the foreground" — not a package, and not `null`, which
-         * means "the foreground app went away". A private object so it can be compared by identity
-         * and can never collide with a real package name.
-         */
-        private val NO_SIGNAL = object {}
 
         fun start(context: Context) {
             // minSdk is 28, so the branch is only here to keep the call honest if the floor moves.

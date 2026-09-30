@@ -55,15 +55,18 @@ class AppContainer(private val context: Context) {
      */
     val clock = MonotonicClock { SystemClock.uptimeMillis() }
 
-    @Suppress("UnnecessaryLateinit")
+    // The `@Suppress("UnnecessaryLateinit")` these three used to carry was inert: the diagnostic is
+    // reported *at* the declaration and survives a suppression placed there — verified by putting
+    // the annotation back and getting the same three warnings. Kept as plain `lateinit`, because
+    // they genuinely cannot be constructor parameters: `core` below is built in this class's
+    // initialiser block and reads all three from its lambdas, so it must exist before the
+    // constructor body runs. The warning is a false positive that costs three lines of build log.
     internal lateinit var overlayManager: OverlayManager
         private set
 
-    @Suppress("UnnecessaryLateinit")
     internal lateinit var notifier: AndroidNotifier
         private set
 
-    @Suppress("UnnecessaryLateinit")
     internal lateinit var notificationController: NotificationController
         private set
 

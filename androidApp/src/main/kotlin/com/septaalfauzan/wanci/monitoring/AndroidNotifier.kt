@@ -42,6 +42,19 @@ class AndroidNotifier(private val context: Context) : Notifier {
     }
 
     /**
+     * Whether anything has been published yet.
+     *
+     * Two things need to know: [latest], which throws rather than hand back a half-built
+     * notification, and the service, whose first `startForeground` is the only thing that makes
+     * [latest] safe to call. The flag lives here rather than on the service because it is
+     * process-scoped and the cache it reports on dies with the process: a service restarted after
+     * process death reads `false` and seeds the notification again, which is what that start
+     * needs, while a second `onStartCommand` in the same process reads `true` and leaves a live
+     * session in the shade alone.
+     */
+    val published: Boolean get() = cached != null
+
+    /**
      * The most recently built notification. Throws when nothing has been published yet, which is a
      * programming error rather than a runtime state: a service that calls this before
      * [NotificationController.start] has no notification to show the system.
