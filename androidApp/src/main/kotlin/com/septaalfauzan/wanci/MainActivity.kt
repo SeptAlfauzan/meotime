@@ -1,14 +1,19 @@
 package com.septaalfauzan.wanci
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.septaalfauzan.wanci.permission.PermissionChecks
 import com.septaalfauzan.wanci.presentation.App
 import com.septaalfauzan.wanci.presentation.DeepLinkRequest
 
@@ -48,9 +53,43 @@ class MainActivity : ComponentActivity() {
      */
     private var deliveredRequests = 0L
 
+    /**
+     * `POST_NOTIFICATIONS` is a runtime dialog on API 33+, and shared code cannot hold a launcher.
+     * The pending callback is held here rather than captured by the launch lambda because the
+     * launcher is registered at construction time while the shared graph is built later, in
+     * `setContent` — the two cannot be wired together at registration time.
+     */
+    private var onNotificationAnswer: (() -> Unit)? = null
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { onNotificationAnswer?.also { onNotificationAnswer = null }?.invoke() }
+
+    private val permissionHost = object : NotificationPermissionHost {
+        override fun requestNotificationPermission(onResult: () -> Unit) {
+            val alreadyGranted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            if (alreadyGranted || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                // Nothing to ask: below API 33 the permission does not exist, and an already-granted
+                // permission is a fact the caller wants immediately rather than after a round trip.
+                onResult()
+                return
+            }
+            onNotificationAnswer = onResult
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val container = (application as WanciApplication).container
+        container.notificationPermissionHost = permissionHost
+        // The one re-entry for a force-stop: the system will not restart anything the user stopped
+        // by hand, and opening the app is the only signal that they want it running again. Guarded
+        // on usage access, because a service with nothing to poll would publish the "Usage Access
+        // needed" state on the first tick and never recover on its own.
+        if (PermissionChecks.status(this).usageAccess) container.startMonitoring()
         // A rotation must not lose the destination: without the restored value the start
         // destination is recomputed to the dashboard while the remembered graph restores itself
         // at appsettings/{package}, and re-setting the graph replaces the back stack, so the user
@@ -66,11 +105,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             // Keyed on the request so the graph is rebuilt only when a deep link actually
             // arrives, not on every recomposition.
-            val deps = remember(deepLink) {
-                (application as WanciApplication).container.toDependencies(deepLink)
-            }
+            val deps = remember(deepLink) { container.toDependencies(deepLink) }
             App(deps)
         }
+    }
+
+    override fun onDestroy() {
+        val container = (application as? WanciApplication)?.container
+        if (container?.notificationPermissionHost === permissionHost) {
+            container.notificationPermissionHost = null
+        }
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

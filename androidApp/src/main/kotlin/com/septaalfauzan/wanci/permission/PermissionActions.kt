@@ -22,13 +22,6 @@ class PermissionActions(private val context: Context) : PermissionNavigator {
         }
     }
 
-    override fun openAccessibility() {
-        try {
-            start(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        } catch (_: Exception) {
-        }
-    }
-
     private fun start(intent: Intent) {
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
