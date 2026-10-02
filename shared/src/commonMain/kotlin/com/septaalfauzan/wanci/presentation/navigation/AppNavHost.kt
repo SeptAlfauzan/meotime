@@ -113,6 +113,7 @@ fun AppNavHost(
             val vm: DashboardViewModel = viewModel {
                 DashboardViewModel(
                     useCases = deps.useCases,
+                    appIconProvider = deps.appIconProvider,
                     installedAppCheck = deps.installedAppCheck,
                 )
             }
@@ -127,10 +128,11 @@ fun AppNavHost(
         }
         composable(Routes.ADD_APP) {
             val vm: AddAppViewModel = viewModel {
-                AddAppViewModel(
-                    installedAppsProvider = deps.installedAppsProvider,
-                    useCases = deps.useCases,
-                )
+AddAppViewModel(
+                        installedAppsProvider = deps.installedAppsProvider,
+                        appIconProvider = deps.appIconProvider,
+                        useCases = deps.useCases,
+                    )
             }
             AddAppScreen(
                 viewModel = vm,

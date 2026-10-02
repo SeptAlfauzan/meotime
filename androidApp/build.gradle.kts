@@ -21,6 +21,9 @@ dependencies {
 
     testImplementation(libs.kotlin.testJunit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // `rasteriseAppIcon` allocates and draws a real Bitmap, which needs an Android runtime to mean anything. Same
+    // Robolectric version the shared module's host tests already run on.
+    testImplementation(libs.robolectric)
 }
 
 android {

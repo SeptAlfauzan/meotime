@@ -5,6 +5,7 @@ package com.septaalfauzan.wanci.presentation.addapp
 import com.septaalfauzan.wanci.FakeRepository
 import com.septaalfauzan.wanci.FakeTodayKey
 import com.septaalfauzan.wanci.data.repository.ScreenTimeRepository
+import com.septaalfauzan.wanci.domain.AppIconProvider
 import com.septaalfauzan.wanci.domain.InstalledApp
 import com.septaalfauzan.wanci.domain.InstalledAppsProvider
 import com.septaalfauzan.wanci.domain.model.MonitoredApp
@@ -68,6 +69,8 @@ class AddAppViewModelTest {
         )
     }
 
+    private val iconProvider = AppIconProvider { null }
+
     @BeforeTest
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -83,6 +86,7 @@ class AddAppViewModelTest {
         installedAppsProvider: InstalledAppsProvider = installed,
     ) = AddAppViewModel(
         installedAppsProvider = installedAppsProvider,
+        appIconProvider = iconProvider,
         useCases = WanciUseCases(repository, today),
     )
 

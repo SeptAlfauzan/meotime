@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
@@ -98,9 +101,11 @@ fun AddAppScreen(
                 hasPlatformApps = state.hasPlatformApps,
                 modifier = Modifier.weight(1f),
             )
+
             else -> AddAppList(
                 apps = state.apps,
                 selected = state.selected,
+                icons = state.icons,
                 onSelect = viewModel::select,
                 modifier = Modifier.weight(1f),
             )
@@ -121,6 +126,7 @@ fun AddAppScreen(
 private fun AddAppList(
     apps: List<InstalledApp>,
     selected: String?,
+    icons: Map<String, androidx.compose.ui.graphics.ImageBitmap>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -137,6 +143,7 @@ private fun AddAppList(
             AddAppRow(
                 app = app,
                 selected = app.packageName == selected,
+                icon = icons[app.packageName],
                 onClick = { onSelect(app.packageName) },
             )
         }
@@ -155,6 +162,7 @@ private fun AddAppList(
 private fun AddAppRow(
     app: InstalledApp,
     selected: Boolean,
+    icon: androidx.compose.ui.graphics.ImageBitmap?,
     onClick: () -> Unit,
 ) {
     val spacing = WanciTokens.spacing
@@ -166,9 +174,25 @@ private fun AddAppRow(
             .padding(horizontal = spacing.xs, vertical = spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Decorative: the row owns the click and the state, so a second onClick here would make
-        // one tap fire the selection twice and add a duplicate control to the focus order.
-        RadioButton(selected = selected, onClick = null, modifier = Modifier.clearAndSetSemantics { })
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            modifier = Modifier.clearAndSetSemantics { })
+        if (icon != null) {
+            // Decorative: the app name is the text right beside this, so labelling the icon would
+            // make a screen reader announce the name twice for one row.
+            Spacer(Modifier.width(spacing.sm))
+            Image(
+                bitmap = icon,
+                contentDescription = null,
+                // The slot `AppIconProviderAndroid` decodes the bitmap to. Raising it here costs sharpness, not
+                // correctness: the bitmap stays bounded to the provider's ceiling either way.
+                modifier = Modifier.size(24.dp),
+            )
+        } else {
+            // Same footprint either way, so rows do not reflow as icons finish loading.
+            Spacer(Modifier.width(spacing.sm))
+        }
         Column(
             modifier = Modifier
                 .weight(1f)

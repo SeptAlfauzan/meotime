@@ -1,7 +1,9 @@
 package com.septaalfauzan.wanci.presentation.addapp
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.septaalfauzan.wanci.domain.AppIconProvider
 import com.septaalfauzan.wanci.domain.InstalledApp
 import com.septaalfauzan.wanci.domain.InstalledAppsProvider
 import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
@@ -43,6 +45,7 @@ data class AddAppUiState(
     val error: Boolean = false,
     val monitoredPackages: Set<String> = emptySet(),
     val hasPlatformApps: Boolean = true,
+    val icons: Map<String, ImageBitmap> = emptyMap(),
 ) {
     /**
      * Whether the primary action may hand the selection to the limit step.
@@ -93,6 +96,7 @@ data class AddAppUiState(
  */
 class AddAppViewModel(
     installedAppsProvider: InstalledAppsProvider,
+    private val appIconProvider: AppIconProvider,
     private val useCases: WanciUseCases,
 ) : ViewModel() {
 
@@ -110,9 +114,26 @@ class AddAppViewModel(
     val state: StateFlow<AddAppUiState> = _state.asStateFlow()
 
     private var observeJob: Job? = null
+    private var iconJob: Job? = null
 
     init {
+        loadIcons()
         observe()
+    }
+
+    private fun loadIcons() {
+        iconJob?.cancel()
+        // No dispatcher override: the decode is what is expensive here, and the provider already moves it off the
+        // main thread with its own `withContext`. Naming a dispatcher on this launch would only add a hop per app and
+        // cost the eager execution the state machine's tests rely on.
+        iconJob = viewModelScope.launch {
+            val loaded = mutableMapOf<String, ImageBitmap>()
+            for (app in allInstalled) {
+                val icon = appIconProvider.getIcon(app.packageName)
+                if (icon != null) loaded[app.packageName] = icon
+            }
+            _state.update { it.copy(icons = loaded) }
+        }
     }
 
     /** Re-reads the monitored set: the retry behind the error state, and a manual refresh. */
@@ -154,6 +175,7 @@ class AddAppViewModel(
                         loading = false,
                         error = true,
                         hasPlatformApps = hasPlatformApps,
+                        icons = _state.value.icons,
                     )
                 }
                 .collect { monitored ->

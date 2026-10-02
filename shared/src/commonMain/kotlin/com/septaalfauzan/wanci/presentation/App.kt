@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.septaalfauzan.wanci.data.local.TodayKey
+import com.septaalfauzan.wanci.domain.AppIconProvider
 import com.septaalfauzan.wanci.domain.InstalledAppCheck
 import com.septaalfauzan.wanci.domain.InstalledAppsProvider
 import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
@@ -38,6 +39,7 @@ data class WanciAppDependencies(
     val startMonitoring: () -> Unit,
     val installedAppsProvider: InstalledAppsProvider,
     val installedAppCheck: InstalledAppCheck,
+    val appIconProvider: AppIconProvider,
     val deepLink: DeepLinkRequest? = null,
 )
 

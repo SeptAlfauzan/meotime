@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.LinearProgressIndicator
@@ -28,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -80,6 +84,7 @@ fun DashboardScreen(
             state.apps.isEmpty() -> DashboardEmpty(onAddApp = onAddApp)
             else -> MonitoredAppList(
                 apps = state.apps,
+                icons = state.appIcons,
                 onOpenApp = onOpenApp,
                 modifier = Modifier.weight(1f),
             )
@@ -98,6 +103,7 @@ fun DashboardScreen(
 @Composable
 private fun MonitoredAppList(
     apps: List<MonitoredApp>,
+    icons: Map<String, androidx.compose.ui.graphics.ImageBitmap>,
     onOpenApp: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -106,7 +112,7 @@ private fun MonitoredAppList(
         verticalArrangement = Arrangement.spacedBy(WanciTokens.spacing.sm),
     ) {
         items(apps, key = { it.packageName }) { app ->
-            MonitoredAppRow(app = app, onClick = { onOpenApp(app.packageName) })
+            MonitoredAppRow(app = app, appIcon = icons[app.packageName], onClick = { onOpenApp(app.packageName) })
         }
     }
 }
@@ -123,7 +129,7 @@ private fun MonitoredAppList(
  * settings screen so the two can never describe the same row differently.
  */
 @Composable
-private fun MonitoredAppRow(app: MonitoredApp, onClick: () -> Unit) {
+private fun MonitoredAppRow(app: MonitoredApp, appIcon: ImageBitmap?, onClick: () -> Unit) {
     val row = dashboardRow(app)
     val spacing = WanciTokens.spacing
     val status = appStatusLabel(row)
@@ -141,6 +147,16 @@ private fun MonitoredAppRow(app: MonitoredApp, onClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(spacing.xs),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (appIcon != null) {
+                    // Decorative: the app name is the text right beside this, so a label here would make a screen
+                    // reader announce the row twice. What it must never be is a debug string — a literal
+                    // "app_icon_com.foo" is not a description, it is the variable name.
+                    Image(appIcon, contentDescription = null, modifier = Modifier.size(24.dp))
+                } else {
+                    // Same footprint either way, so a row does not shift sideways once its icon finishes decoding.
+                    Spacer(Modifier.size(24.dp))
+                }
+                Spacer(Modifier.width(spacing.sm))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(app.appName, style = MaterialTheme.typography.titleMedium)
                     if (!app.installed) {

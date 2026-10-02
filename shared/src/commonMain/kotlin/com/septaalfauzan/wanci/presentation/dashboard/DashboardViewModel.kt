@@ -1,16 +1,20 @@
 package com.septaalfauzan.wanci.presentation.dashboard
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.septaalfauzan.wanci.domain.AppIconProvider
 import com.septaalfauzan.wanci.domain.InstalledAppCheck
 import com.septaalfauzan.wanci.domain.model.MonitoredApp
 import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -23,6 +27,7 @@ import kotlinx.coroutines.launch
  */
 data class DashboardUiState(
     val apps: List<MonitoredApp> = emptyList(),
+    val appIcons: Map<String, ImageBitmap> = emptyMap(),
     val loading: Boolean = true,
     val error: Boolean = false,
 )
@@ -129,6 +134,7 @@ internal fun appStatusLabel(row: DashboardAppRow): String = when {
  */
 class DashboardViewModel(
     private val useCases: WanciUseCases,
+    private val appIconProvider: AppIconProvider,
     private val installedAppCheck: InstalledAppCheck,
 ) : ViewModel() {
 
@@ -164,6 +170,8 @@ class DashboardViewModel(
         observeJob?.cancel()
         var probedPackages: Set<String> = emptySet()
         var installedByPackage: Map<String, Boolean> = emptyMap()
+        var iconProbedPackages: Set<String> = emptySet()
+        var iconByPackage: Map<String, ImageBitmap> = emptyMap()
         observeJob = viewModelScope.launch {
             useCases.observeMonitoredApps()
                 .map { apps ->
@@ -172,12 +180,47 @@ class DashboardViewModel(
                         probedPackages = packages
                         installedByPackage = packages.associateWith { installedAppCheck.isInstalled(it) }
                     }
+                    // Same cache discipline as the installed probe above, and for the same reason: an icon is a
+                    // `PackageManager` round trip plus a rasterise, and a usage emission arrives every recorded minute.
+                    // Re-decoding per emission would make the dashboard's icon bill scale with how much the user uses
+                    // their phone. Re-read only when the package set itself changes, which also means an app added or
+                    // removed elsewhere is the thing that costs a d
+                    // ecode.
+                    if (packages != iconProbedPackages) {
+                        iconProbedPackages = packages
+                        iconByPackage = loadIcons(packages)
+                    }
                     apps.map { app ->
                         app.copy(installed = installedByPackage[app.packageName] ?: app.installed)
                     }
                 }
-                .catch { _state.value = DashboardUiState(loading = false, error = true) }
-                .collect { apps -> _state.value = DashboardUiState(apps = apps, loading = false) }
+                // `update`, not a fresh state: a usage emission arrives every recorded minute, and rebuilding the state
+                // from scratch here would clear `appIcons` on every one of them — a map that took a `PackageManager`
+                // round trip per row to fill, dropped by the arrival of an unrelated number.
+                .catch { _state.update { it.copy(loading = false, error = true) } }
+                .collect { apps ->
+                    _state.update { it.copy(apps = apps, loading = false, appIcons = iconByPackage) }
+                }
         }
     }
+
+    /**
+     * Decodes one icon per package. A package with no loadable icon is simply absent from the result rather than
+     * mapped to null: the screen treats a missing key and a null value identically, and a map that cannot hold null
+     * cannot be read as "this row failed to load" when it only means "this row has no icon".
+     *
+     * Failure is isolated per package because this runs inside the observed-apps stream: one throwable drawable
+     * would otherwise abort the whole list and leave the dashboard empty behind an error, which lets a cosmetic
+     * failure take out the entire feature. Cancellation is rethrown so this cannot swallow a [refresh].
+     */
+    private suspend fun loadIcons(packages: Set<String>): Map<String, ImageBitmap> =
+        packages.mapNotNull { packageName ->
+            try {
+                appIconProvider.getIcon(packageName)?.let { packageName to it }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                null
+            }
+        }.toMap()
 }

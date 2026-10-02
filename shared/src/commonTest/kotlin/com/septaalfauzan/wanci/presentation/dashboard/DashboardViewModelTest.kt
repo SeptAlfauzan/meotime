@@ -2,9 +2,13 @@
 
 package com.septaalfauzan.wanci.presentation.dashboard
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageBitmapConfig
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import com.septaalfauzan.wanci.FakeRepository
 import com.septaalfauzan.wanci.FakeTodayKey
 import com.septaalfauzan.wanci.data.repository.ScreenTimeRepository
+import com.septaalfauzan.wanci.domain.AppIconProvider
 import com.septaalfauzan.wanci.domain.InstalledAppCheck
 import com.septaalfauzan.wanci.domain.model.MonitoredApp
 import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
@@ -44,6 +48,56 @@ private class FlakyRepository(private val delegate: ScreenTimeRepository) : Scre
     }
 }
 
+/**
+ * A stand-in that never touches a real graphics backend. `ImageBitmap(2, 2)` cannot be used in a shared JVM test
+ * because it routes into `android.graphics.Bitmap`, which is not mocked outside Robolectric — so a fake calling the
+ * real factory would throw and drag the dashboard down its error path, which is the opposite of what these tests are
+ * checking. Nothing here reads a pixel: the ViewModel only stores the bitmap and hands it to a screen these tests do
+ * not render, so an inert stub is a truthful stand-in rather than a dodge.
+ */
+private object FakeImageBitmap : ImageBitmap {
+    override val width = 2
+    override val height = 2
+    override val config = ImageBitmapConfig.Argb8888
+    override val hasAlpha = true
+    override val colorSpace = ColorSpaces.Srgb
+
+    override fun prepareToDraw() = Unit
+
+    override fun readPixels(
+        buffer: IntArray,
+        startX: Int,
+        startY: Int,
+        width: Int,
+        height: Int,
+        bufferOffset: Int,
+        stride: Int,
+    ) {
+        buffer.fill(0, bufferOffset, bufferOffset + height * stride)
+    }
+}
+
+/**
+ * Counts what it was asked for, so a test can prove the icon cache actually caches rather than merely
+ * returning the right value once. A fake that only returned icons could not tell "re-decoded every
+ * emission" apart from "decoded once", which is the distinction that keeps a per-minute usage emission
+ * from costing a `PackageManager` round trip per row.
+ */
+private class RecordingIconProvider(private val answer: (String) -> Boolean = { true }) : AppIconProvider {
+    val requested = mutableListOf<String>()
+
+    override suspend fun getIcon(packageName: String): ImageBitmap? {
+        requested += packageName
+        return if (answer(packageName)) FakeImageBitmap else null
+    }
+}
+
+/** Throws for the named packages, standing in for a drawable the platform cannot rasterise. */
+private class ExplodingIconProvider(private val exploding: Set<String>) : AppIconProvider {
+    override suspend fun getIcon(packageName: String): ImageBitmap? =
+        if (packageName in exploding) error("unrasterisable drawable for $packageName") else FakeImageBitmap
+}
+
 class DashboardViewModelTest {
 
     private val repository = FakeRepository()
@@ -59,11 +113,17 @@ class DashboardViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(
+    /**
+ * [installed] is last on purpose: the existing call sites pass it as a trailing lambda, so a parameter
+ * added after it would silently become the target of every one of those lambdas.
+ */
+private fun newViewModel(
         repository: ScreenTimeRepository = this.repository,
+        iconProvider: AppIconProvider = AppIconProvider { null },
         installed: (String) -> Boolean = { true },
     ) = DashboardViewModel(
         useCases = WanciUseCases(repository, today),
+        appIconProvider = iconProvider,
         installedAppCheck = InstalledAppCheck { installed(it) },
     )
 
@@ -272,7 +332,105 @@ class DashboardViewModelTest {
         assertTrue(row.progress < 1f, "the bar must not be full at 29m30s")
     }
 
-    private fun app(usageMinutes: Long, limitMinutes: Int, enabled: Boolean = true) = MonitoredApp(
+    /**
+     * The original bug: icons were loaded once from `init`, which read `state.value.apps` before the
+     * observed read had answered, so the map stayed empty for the life of the screen. Icons are now
+     * derived from the emission itself, which means the first one carries them.
+     */
+    @Test
+    fun publishesAnIconForEveryMonitoredApp() = runTest {
+        repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+        val icons = RecordingIconProvider()
+
+        val state = newViewModel(iconProvider = icons).state.value
+
+        assertEquals(setOf("com.instagram.android"), state.appIcons.keys)
+    }
+
+    /**
+     * A usage emission arrives every recorded minute. Rebuilding the state from scratch on each one
+     * cleared `appIcons` — discarding a `PackageManager` round trip per row every time an unrelated
+     * number changed — so the icons were gone a minute after they loaded.
+     */
+    @Test
+    fun iconsSurviveTheUsageEmissionThatArrivesWhileTheDashboardIsOpen() = runTest {
+        repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+        val viewModel = newViewModel(iconProvider = RecordingIconProvider())
+        assertEquals(setOf("com.instagram.android"), viewModel.state.value.appIcons.keys)
+
+        repository.usage.value = mapOf("com.instagram.android" to 600L)
+
+        val state = viewModel.state.value
+        assertEquals(600L, state.apps.single().todayUsageSeconds, "the emission itself must have landed")
+        assertEquals(setOf("com.instagram.android"), state.appIcons.keys)
+    }
+
+    /**
+     * The caching invariant behind the above: an icon costs a `PackageManager` round trip plus a
+     * rasterise, so re-decoding per usage emission would make the dashboard's icon cost scale with how
+     * much the user uses their phone. Only a change to the package set may trigger a decode.
+     */
+    @Test
+    fun doesNotReDecodeIconsForAUsageEmissionThatChangesNoPackage() = runTest {
+        repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+        val icons = RecordingIconProvider()
+        val viewModel = newViewModel(iconProvider = icons)
+        val decodesAfterFirstEmission = icons.requested.size
+
+        repository.usage.value = mapOf("com.instagram.android" to 900L)
+
+        assertEquals(decodesAfterFirstEmission, icons.requested.size)
+    }
+
+    /** A package added later is decoded; that set change is the only thing that may cost a decode. */
+    @Test
+    fun decodesAgainWhenThePackageSetChanges() = runTest {
+        repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+        val icons = RecordingIconProvider()
+        val viewModel = newViewModel(iconProvider = icons)
+        val decodesBefore = icons.requested.size
+
+        repository.addMonitoredApp("com.google.android.youtube", "YouTube", 30)
+
+        assertEquals(
+            setOf("com.instagram.android", "com.google.android.youtube"),
+            viewModel.state.value.appIcons.keys,
+        )
+        assertTrue(icons.requested.size > decodesBefore, "a new package must be decoded")
+    }
+
+    /**
+     * An app with no loadable icon is absent from the map rather than mapped to null, so a missing key
+     * means "no icon" and cannot be read as "this row failed to load".
+     */
+    @Test
+    fun anAppWithNoIconIsAbsentFromTheMapRatherThanMappedToNull() = runTest {
+        repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+        val icons = RecordingIconProvider(answer = { false })
+
+        val state = newViewModel(iconProvider = icons).state.value
+
+        assertEquals(1, state.apps.size)
+        assertTrue(state.appIcons.isEmpty())
+    }
+
+    /**
+ * Icon loading shares the observed-apps stream, so an unrasterisable drawable must not be able to abort
+ * the list and leave the dashboard empty behind an error. One bad icon costs one icon.
+ */
+@Test
+fun oneUnrasterisableIconDoesNotRemoveTheOtherRows() = runTest {
+    repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+    repository.addMonitoredApp("com.example.boom", "Boom", 30)
+
+    val state = newViewModel(iconProvider = ExplodingIconProvider(setOf("com.example.boom"))).state.value
+
+    assertEquals(2, state.apps.size, "a bad icon must not cost the user their rows")
+    assertFalse(state.error, "a bad icon is not a database failure")
+    assertEquals(setOf("com.instagram.android"), state.appIcons.keys)
+}
+
+private fun app(usageMinutes: Long, limitMinutes: Int, enabled: Boolean = true) = MonitoredApp(
         id = 1,
         packageName = "com.instagram.android",
         appName = "Instagram",

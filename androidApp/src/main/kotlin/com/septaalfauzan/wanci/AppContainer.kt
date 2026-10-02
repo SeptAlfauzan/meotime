@@ -2,6 +2,7 @@ package com.septaalfauzan.wanci
 
 import android.content.Context
 import android.os.SystemClock
+import com.septaalfauzan.wanci.apps.AppIconProviderAndroid
 import com.septaalfauzan.wanci.apps.AppLabelResolver
 import com.septaalfauzan.wanci.apps.InstalledAppsProviderAndroid
 import com.septaalfauzan.wanci.data.local.createTodayKey
@@ -133,6 +134,7 @@ class AppContainer(private val context: Context) {
             permissionNavigator = PermissionActions(context),
             installedAppsProvider = InstalledAppsProviderAndroid(context),
             installedAppCheck = AppLabelResolver(context).asInstalledAppCheck(),
+            appIconProvider = AppIconProviderAndroid(context),
             // The launcher lives in the Activity, so the shared graph only ever sees the request
             // shape. Null host is a dropped request, not a crash: there is no visible surface to
             // show the system dialog on.
