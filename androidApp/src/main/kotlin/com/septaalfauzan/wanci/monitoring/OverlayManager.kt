@@ -25,6 +25,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.septaalfauzan.wanci.EXTRA_REQUESTED_PACKAGE
 import com.septaalfauzan.wanci.presentation.overlay.OverlayScreen
+import com.septaalfauzan.wanci.presentation.theme.MonochromeTheme
 
 class OverlayManager(private val context: Context) {
 
@@ -91,13 +92,15 @@ class OverlayManager(private val context: Context) {
             setViewTreeSavedStateRegistryOwner(lifecycleOwner)
             setViewTreeViewModelStoreOwner(lifecycleOwner)
             setContent {
-                OverlayScreen(
-                    appName = decision.appName,
-                    usageSeconds = decision.usageSeconds,
-                    limitSeconds = decision.limitSeconds,
-                    onLeave = { leaveApp() },
-                    onManage = { openWanci(decision.packageName) },
-                )
+                MonochromeTheme {
+                    OverlayScreen(
+                        appName = decision.appName,
+                        usageSeconds = decision.usageSeconds,
+                        limitSeconds = decision.limitSeconds,
+                        onLeave = { leaveApp() },
+                        onManage = { openWanci(decision.packageName) },
+                    )
+                }
             }
         }
         try {
