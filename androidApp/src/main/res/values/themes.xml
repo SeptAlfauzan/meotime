@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The window backdrop, i.e. the one surface Compose does not own: it is what shows in the frame
+    before the first composition and behind the transparent system bars that enableEdgeToEdge()
+    installs. Left unpinned it follows the platform default of Theme.Material.Light, which is why
+    dark mode used to render near-white text on a white window.
+
+    #FAFAF8 is MonochromeLight.background, duplicated as a literal because this XML resolves
+    before any Compose code exists and there is no shared token store to read it from. The dark
+    counterpart lives in values-night/themes.xml.
+-->
+<resources>
+    <style name="Theme.Wanci" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFAFAF8</item>
+    </style>
+</resources>
