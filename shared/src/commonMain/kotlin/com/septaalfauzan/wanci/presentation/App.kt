@@ -1,8 +1,14 @@
 package com.septaalfauzan.wanci.presentation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import com.septaalfauzan.wanci.data.local.TodayKey
 import com.septaalfauzan.wanci.domain.AppIconProvider
 import com.septaalfauzan.wanci.domain.InstalledAppCheck
@@ -70,12 +76,26 @@ val LocalDependencies = staticCompositionLocalOf<WanciAppDependencies> {
  * without the design system, and its `spacing`/`controls` parameters stay the one seam a host
  * overrides (e.g. a settings screen offering a larger touch target) without re-theming
  * individual destinations.
+ *
+ * The root also paints `colorScheme.background`. Every screen below it is a bare `Column` or
+ * `LazyColumn` that deliberately paints nothing of its own, so without this fill the whole app is
+ * transparent and the *platform window* is what the user sees — which stays light on a light
+ * Android theme no matter what the Compose scheme says, i.e. near-white text on a white window in
+ * dark mode. `safeContentPadding` insets the content only; the fill deliberately covers the insets
+ * too, so a gesture bar never exposes the window underneath.
  */
 @Composable
 fun App(dependencies: WanciAppDependencies) {
     CompositionLocalProvider(LocalDependencies provides dependencies) {
         MonochromeTheme {
-            AppNavHost()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .safeContentPadding(),
+            ) {
+                AppNavHost()
+            }
         }
     }
 }
