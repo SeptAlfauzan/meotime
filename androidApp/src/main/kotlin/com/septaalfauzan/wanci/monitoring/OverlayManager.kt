@@ -2,7 +2,6 @@ package com.septaalfauzan.wanci.monitoring
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
@@ -74,7 +73,9 @@ class OverlayManager(private val context: Context) {
             gravity = Gravity.TOP or Gravity.START
         }
         val view = ComposeView(context).apply {
-            setBackgroundColor(Color.WHITE)
+            // No background here on purpose: this is a TRANSLUCENT overlay window, and OverlayScreen
+            // paints colorScheme.background over the whole surface. Setting one here would be an
+            // Android-side copy of the theme that follows the system on one platform only.
             isFocusableInTouchMode = true
             // BACK is an exit, not a dismissal. With both buttons leaving as well, no action
             // closes the overlay while leaving the user inside the restricted app, which is what

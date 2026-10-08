@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Shapes
@@ -280,8 +281,21 @@ fun MonochromeTheme(
             colorScheme = if (darkTheme) MonochromeDark else MonochromeLight,
             typography = WanciTypography,
             shapes = WanciShapes,
-            content = content,
-        )
+        ) {
+            // A `Surface` provides its own content color; a `Box(Modifier.background(...))` does
+            // not. Any `Text`, `Icon` or `contentColorFor` outside one therefore falls through to
+            // `LocalContentColor`'s own default, which is `Color.Black` and knows nothing about
+            // this scheme. In light mode that reads as near-black text on near-white and looks
+            // deliberate; in dark mode it is black on #0A0A0A, i.e. invisible. Seeding the
+            // content color here means a screen gets themed text from the theme itself rather
+            // than from whichever container it happened to be nested in, and a `Surface` further
+            // down still shadows it with the role matching its own color.
+            CompositionLocalProvider(
+                LocalContentColor provides MaterialTheme.colorScheme.onBackground,
+            ) {
+                content()
+            }
+        }
     }
 }
 
