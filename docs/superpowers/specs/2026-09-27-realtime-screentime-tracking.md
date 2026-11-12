@@ -1,4 +1,4 @@
-# Wanci — Realtime Screen-Time Tracking
+# Meotime — Realtime Screen-Time Tracking
 
 Date: 2026-09-27
 Status: Draft
@@ -110,7 +110,7 @@ Tests bind it to `TestScope.currentTime`, which makes every timing assertion vir
 
 `OverlayManager` loses its `core` and `coreMutex` constructor parameters and becomes `OverlayManager(context)` — a pure view host with no knowledge of the core. Its coroutine scope goes with them.
 
-`SyncStateDao`, `getSyncValue`, `putSyncValue`, and `observeSyncValue` all stay: onboarding depends on them (`WanciUseCases.kt:16`). Only the `lastReconcileEpochMillis` key is abandoned.
+`SyncStateDao`, `getSyncValue`, `putSyncValue`, and `observeSyncValue` all stay: onboarding depends on them (`MeotimeUseCases.kt:16`). Only the `lastReconcileEpochMillis` key is abandoned.
 
 ### Comments
 
@@ -137,7 +137,7 @@ Keeping it avoids a second table migration and leaves every limit-related screen
 
 ### `Migration(1, 2)`
 
-`WanciDatabase` goes `version = 1 → 2` and `exportSchema = false → true`. `room.schemaLocation` is set as a KSP argument per source set in `shared/build.gradle.kts`, and the generated `schemas/` directory is committed so the next migration is generated rather than guessed.
+`MeotimeDatabase` goes `version = 1 → 2` and `exportSchema = false → true`. `room.schemaLocation` is set as a KSP argument per source set in `shared/build.gradle.kts`, and the generated `schemas/` directory is committed so the next migration is generated rather than guessed.
 
 The migration rebuilds `daily_usage`, because `DROP COLUMN` is unavailable at `minSdk` 28:
 
@@ -155,7 +155,7 @@ DROP TABLE `daily_usage`;
 ALTER TABLE `daily_usage_new` RENAME TO `daily_usage`;
 ```
 
-Room wraps this in a transaction. `MIGRATION_1_2` lives in commonMain beside `WanciDatabase`, and **both** `PlatformDatabase.android.kt:20` and `PlatformDatabase.ios.kt:18` gain `.addMigrations(MIGRATION_1_2)`. Neither platform registers any migration today, and an unregistered migration means a silent destructive wipe on upgrade.
+Room wraps this in a transaction. `MIGRATION_1_2` lives in commonMain beside `MeotimeDatabase`, and **both** `PlatformDatabase.android.kt:20` and `PlatformDatabase.ios.kt:18` gain `.addMigrations(MIGRATION_1_2)`. Neither platform registers any migration today, and an unregistered migration means a silent destructive wipe on upgrade.
 
 ### Repository surface
 
@@ -166,7 +166,7 @@ Room wraps this in a transaction. `MIGRATION_1_2` lives in commonMain beside `Wa
 | `queryForegroundMinutes` | `addDelta` → `addDeltaSeconds` |
 | the `lastReconcileEpochMillis` key | `getTodayUsage` → `observeTodayUsageSeconds` |
 
-`deleteUsageBefore` stays but loses its only caller. The 7-day prune moves to `WanciApplication.onCreate`: one indexed `DELETE` per cold start on a table holding at most a few dozen rows. The cutoff date is derived from `todayKey.todayIso()` parsed as a `LocalDate` and pushed back seven days, so it follows the same clock as everything else rather than introducing a second `LocalDate.now()` call site.
+`deleteUsageBefore` stays but loses its only caller. The 7-day prune moves to `MeotimeApplication.onCreate`: one indexed `DELETE` per cold start on a table holding at most a few dozen rows. The cutoff date is derived from `todayKey.todayIso()` parsed as a `LocalDate` and pushed back seven days, so it follows the same clock as everything else rather than introducing a second `LocalDate.now()` call site.
 
 ### `dashboardRow` must convert before it compares
 
@@ -296,7 +296,7 @@ The ticker exiting on the crossing is not where accrual stops. Accrual is a prop
 
 ## Overlay
 
-`OverlayManager(context)`. Unchanged, because they already work: the single-instance guard (`if (overlayView != null) return`), the full-screen `TYPE_APPLICATION_OVERLAY` window with an opaque white background, `isFocusableInTouchMode` + `requestFocus()` for BACK interception, the synthetic `OverlayLifecycleOwner` supplying lifecycle / saved-state / ViewModelStore to the Compose view tree, and the "Manage restriction" action relaunching Wanci with `EXTRA_REQUESTED_PACKAGE`.
+`OverlayManager(context)`. Unchanged, because they already work: the single-instance guard (`if (overlayView != null) return`), the full-screen `TYPE_APPLICATION_OVERLAY` window with an opaque white background, `isFocusableInTouchMode` + `requestFocus()` for BACK interception, the synthetic `OverlayLifecycleOwner` supplying lifecycle / saved-state / ViewModelStore to the Compose view tree, and the "Manage restriction" action relaunching Meotime with `EXTRA_REQUESTED_PACKAGE`.
 
 BACK routes to `leaveApp()` — dismiss plus `ACTION_MAIN` / `CATEGORY_HOME` — and still returns `true` so the underlying app never receives it:
 
@@ -316,7 +316,7 @@ setOnKeyListener { _, keyCode, _ ->
 | Exit | Result |
 |---|---|
 | BACK or "Leave app" | Overlay removed, home launcher launched, session closes on the next event, exact elapsed seconds written. |
-| "Manage restriction" | Overlay removed, Wanci launched with `EXTRA_REQUESTED_PACKAGE`, deep-links to that app's settings. Session closes and is written. On return a fresh session reads the new stored total and the new limit: raising the limit above the total means no overlay, lowering it means the overlay is up immediately. |
+| "Manage restriction" | Overlay removed, Meotime launched with `EXTRA_REQUESTED_PACKAGE`, deep-links to that app's settings. Session closes and is written. On return a fresh session reads the new stored total and the new limit: raising the limit above the total means no overlay, lowering it means the overlay is up immediately. |
 
 Text uses `formatUsage`, so an over-limit app reads `32m 14s / 30m` rather than a rounded `32 / 30`. The number shown is **frozen at the crossing** — it is not re-ticked while the overlay is up, because a counter climbing behind a dialog you are about to dismiss is noise, and the session accrues regardless.
 
@@ -332,7 +332,7 @@ The `addView` failure path stops being silent: it logs a warning naming the pack
 | Doze mid-session | The ticker's `delay()` stalls on `elapsedRealtime`; the recomputation reads `uptimeMillis`, which did not advance during sleep. The tick resumes and computes the correct awake-time total. Self-correcting, no compensation code. |
 | Wall-clock or timezone change | `uptimeMillis` is monotonic, so a clock change cannot corrupt a running session. Only `todayKey.todayIso()` is wall-clock-derived, so a timezone change while a session is open sends its write to the new date. |
 | Session spans midnight | The write lands entirely on the new day's row. Accepted; splitting at the boundary needs a hook for a case affecting one row by at most one session. |
-| Limit changed while a session is open | Not reachable. The limit is only editable from Wanci, and opening Wanci ends the session, so the captured `limitSeconds` is never stale. |
+| Limit changed while a session is open | Not reachable. The limit is only editable from Meotime, and opening Meotime ends the session, so the captured `limitSeconds` is never stale. |
 | Monitoring toggled off | Same reasoning. `enabled` is read at entry only, which is sufficient. |
 | Monitored app uninstalled | Its row survives by design; it can never enter foreground, so no session opens. The dashboard already labels it as not installed. |
 | Leave-write throws | Caught and logged inside step 1. Session state is already consistent at that point, so the cost is lost seconds, not lost tracking. Without this, one DB error on app A's leave would abort before step 2 and leave app B untracked for the rest of the foreground period. |
@@ -343,7 +343,7 @@ A killed service loses the in-memory session, the ticker, and everything since t
 
 ### Must be verified on a device
 
-Whether the overlay window itself produces a `TYPE_WINDOW_STATE_CHANGED` event attributed to Wanci's package. If it does, showing the overlay feeds `onForegroundChange("com.septaalfauzan.wanci")` back into the core, which closes the session and writes the time. The outcome is still correct — the user is over limit and gets the overlay on re-entry — but the session bookkeeping churns. Verify on real hardware before this is considered done; it cannot be settled from the code.
+Whether the overlay window itself produces a `TYPE_WINDOW_STATE_CHANGED` event attributed to Meotime's package. If it does, showing the overlay feeds `onForegroundChange("com.septaalfauzan.meotime")` back into the core, which closes the session and writes the time. The outcome is still correct — the user is over limit and gets the overlay on re-entry — but the session bookkeeping churns. Verify on real hardware before this is considered done; it cannot be settled from the code.
 
 ## Testing
 
@@ -376,7 +376,7 @@ Whether the overlay window itself produces a `TYPE_WINDOW_STATE_CHANGED` event a
 
 ### Migration test
 
-The test that matters most, because Decision 7 exists specifically to avoid data loss. Robolectric is already wired up and `buildTestDatabase` (`TestBuilders.kt:10`) already accepts a full path. Create a file with the **v1** schema and statements via raw `SQLiteDatabase`, insert a `daily_usage` row at `usageMinutes = 42` and a `monitored_apps` row, open it with `createWanciDatabase(samePath)`, then assert the usage row reads back `2520` seconds and that the monitored app and its limit survived.
+The test that matters most, because Decision 7 exists specifically to avoid data loss. Robolectric is already wired up and `buildTestDatabase` (`TestBuilders.kt:10`) already accepts a full path. Create a file with the **v1** schema and statements via raw `SQLiteDatabase`, insert a `daily_usage` row at `usageMinutes = 42` and a `monitored_apps` row, open it with `createMeotimeDatabase(samePath)`, then assert the usage row reads back `2520` seconds and that the monitored app and its limit survived.
 
 No `androidTest` source set is configured, so there is no instrumentation coverage of `MonitoringAccessibilityService` or `OverlayManager`. The on-device overlay-event question above is therefore a manual check.
 
@@ -387,8 +387,8 @@ The change is one unit but has a hard dependency chain, because the repository c
 1. `MonotonicClock`, `formatUsage`, `MIGRATION_1_2`, the entity and DAO renames, and `addMigrations` on both platforms — with the migration test. Nothing else compiles until this lands.
 2. `ScreenTimeRepository` / `ScreenTimeRepositoryImpl` in seconds, dropping `reconcileDailyUsage`.
 3. `LimitChecker` in seconds, then the `MonitoringCore` rewrite.
-4. `AppContainer`, `WanciApplication`, `MonitoringAccessibilityService`, `OverlayManager`, and the deletion of `UsageStatsReader`.
-5. Domain and presentation: `MonitoredApp`, `WanciUseCases`, `dashboardRow`, and the three screens.
+4. `AppContainer`, `MeotimeApplication`, `MonitoringAccessibilityService`, `OverlayManager`, and the deletion of `UsageStatsReader`.
+5. Domain and presentation: `MonitoredApp`, `MeotimeUseCases`, `dashboardRow`, and the three screens.
 6. Test updates, replacing the assertions that encoded the old lossy behaviour.
 
 Steps 1 and 2 are where a compile error is expected and harmless. A step 5 regression is the one that ships a 60× wrong number to users, so the `dashboardRow` case belongs with that step rather than the test cleanup in step 6.
@@ -400,14 +400,14 @@ Steps 1 and 2 are where a compile error is expected and harmless. A step 5 regre
 | `shared/.../monitoring/MonitoringCore.kt` | Rewrite around `Session`; delete the map, dedupe set, and timer API; add `attach` / `detach` |
 | `shared/.../monitoring/MonotonicClock.kt` | **New** |
 | `shared/.../monitoring/LimitChecker.kt` | Seconds boundary |
-| `shared/.../data/local/WanciDatabase.kt` | `version = 2`, `exportSchema = true` |
-| `shared/.../data/local/WanciMigrations.kt` | **New** — `MIGRATION_1_2` |
+| `shared/.../data/local/MeotimeDatabase.kt` | `version = 2`, `exportSchema = true` |
+| `shared/.../data/local/MeotimeMigrations.kt` | **New** — `MIGRATION_1_2` |
 | `shared/.../data/local/DailyUsageDao.kt` | Seconds naming; delete `raiseToAtLeast` |
 | `shared/.../data/local/entity/DailyUsageEntity.kt` | `usageSeconds` |
 | `shared/.../data/repository/ScreenTimeRepository.kt` | Delete `reconcileDailyUsage`; rename to seconds |
 | `shared/.../data/repository/ScreenTimeRepositoryImpl.kt` | Match the interface; domain mapping in seconds |
 | `shared/.../domain/model/MonitoredApp.kt` | `todayUsageSeconds` |
-| `shared/.../domain/useCase/WanciUseCases.kt` | Rename the usage accessor |
+| `shared/.../domain/useCase/MeotimeUseCases.kt` | Rename the usage accessor |
 | `shared/.../presentation/dashboard/DashboardViewModel.kt` | `dashboardRow` converts to seconds before comparing |
 | `shared/.../presentation/appsettings/AppSettingsViewModel.kt` | `formatUsageMinutes` moves out; seconds state field feeding `dashboardRow` |
 | `shared/.../presentation/format/UsageFormat.kt` | **New** — `formatUsage` |
@@ -418,14 +418,14 @@ Steps 1 and 2 are where a compile error is expected and harmless. A step 5 regre
 | `shared/src/iosMain/.../PlatformDatabase.ios.kt` | `.addMigrations(MIGRATION_1_2)` |
 | `shared/build.gradle.kts` | `room.schemaLocation` KSP arg; commit `schemas/` |
 | `androidApp/.../AppContainer.kt` | Bind `MonotonicClock`; drop `usageStatsReader`; run the prune |
-| `androidApp/.../WanciApplication.kt` | 7-day prune on cold start |
+| `androidApp/.../MeotimeApplication.kt` | 7-day prune on cold start |
 | `androidApp/.../monitoring/MonitoringAccessibilityService.kt` | Delete the reconcile loop; drop the `eventTime` parameter; `attach()` / `detach()` around the service lifetime |
 | `androidApp/.../monitoring/OverlayManager.kt` | Drop core/mutex/scope; BACK → `leaveApp()`; log `addView` failure |
 | `androidApp/.../monitoring/UsageStatsReader.kt` | **Deleted** |
 | `shared/src/commonTest/.../FakeRepository.kt` | Seconds API, `failOnRecord` |
 | `shared/src/commonTest/.../MonitoringCoreTest.kt` | Rewrite, 12 cases |
 | `shared/src/commonTest/.../LimitCheckerTest.kt` | Seconds boundary |
-| `shared/src/androidHostTest/.../WanciDatabaseTest.kt` | Add the v1 → v2 migration test |
+| `shared/src/androidHostTest/.../MeotimeDatabaseTest.kt` | Add the v1 → v2 migration test |
 | `shared/src/androidHostTest/.../ScreenTimeRepositoryImplTest.kt` | Seconds; drop reconcile cases |
 
 `AndroidManifest.xml` and the onboarding flow are deliberately untouched (Decision 4).

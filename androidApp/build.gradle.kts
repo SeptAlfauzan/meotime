@@ -27,11 +27,11 @@ dependencies {
 }
 
 android {
-    namespace = "com.septaalfauzan.wanci"
+    namespace = "com.septaalfauzan.meotime"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.septaalfauzan.wanci"
+        applicationId = "com.septaalfauzan.meotime"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1

@@ -22,7 +22,7 @@ kotlin {
     }
     
     android {
-       namespace = "com.septaalfauzan.wanci.shared"
+       namespace = "com.septaalfauzan.meotime.shared"
        compileSdk = libs.versions.android.compileSdk.get().toInt()
        minSdk = libs.versions.android.minSdk.get().toInt()
     

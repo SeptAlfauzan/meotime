@@ -6,7 +6,7 @@
     assuming a light surface.
 -->
 <resources>
-    <style name="Theme.Wanci" parent="@android:style/Theme.Material.NoActionBar">
+    <style name="Theme.Meotime" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">#FF0A0A0A</item>
     </style>
 </resources>

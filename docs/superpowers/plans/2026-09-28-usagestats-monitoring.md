@@ -1,8 +1,8 @@
-# Wanci — Accessibility to UsageStatsManager Migration Implementation Plan
+# Meotime — Accessibility to UsageStatsManager Migration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the `AccessibilityService` foreground-detection source with a `UsageStatsManager` poll loop hosted by a foreground service, so banking apps (mBanking and equivalents) no longer refuse to run while Wanci is installed, without losing enforcement while the app is closed.
+**Goal:** Replace the `AccessibilityService` foreground-detection source with a `UsageStatsManager` poll loop hosted by a foreground service, so banking apps (mBanking and equivalents) no longer refuse to run while Meotime is installed, without losing enforcement while the app is closed.
 
 **Architecture:** `MonitoringCore` stays source-agnostic and keeps its single-session accounting; it gains one `onSessionChanged` callback so a new `NotificationController` can mirror session state into a persistent notification. A new `MonitoringForegroundService` polls `UsageStatsManager.queryEvents` once a second while the screen is on, delivers only the latest foreground package through the existing mutex-serialized `enqueueForegroundChange` path, and a `BootReceiver` restarts it after reboot. The accessibility service, its config XML, its manifest block, its permission check and its onboarding row are deleted outright.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Package root: `com.septaalfauzan.wanci`. Shared code: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/`. Android bindings: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/`.
+- Package root: `com.septaalfauzan.meotime`. Shared code: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/`. Android bindings: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/`.
 - minSdk 28, targetSdk 37, compileSdk 37, JVM target 11. API 34+ `foregroundServiceType="specialUse"` with the `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` property.
 - `UsageEvents.Event` constants are compile-time `static final int`s, so referencing `ACTIVITY_RESUMED` (API 29+) from a `minSdk 28` module is safe — the value is inlined at compile time and the constant is never read at runtime on API 28.
 - **`UsageEvents.Event.SCREEN_NON_INTERACTIVE` is `16` and `MOVE_TO_FOREGROUND` is `1` — they do not collide.** (An earlier draft of this plan claimed they shared a value; verified against `android-37.0` with `javap -constants` on `android.app.usage.UsageEvents$Event`, which reports `ACTIVITY_RESUMED = 1`, `ACTIVITY_PAUSED = 2`, `MOVE_TO_FOREGROUND = 1`, `MOVE_TO_BACKGROUND = 2`, `SCREEN_INTERACTIVE = 15`, `SCREEN_NON_INTERACTIVE = 16`. `MOVE_TO_FOREGROUND`/`MOVE_TO_BACKGROUND` are plain aliases of `ACTIVITY_RESUMED`/`ACTIVITY_PAUSED`.) So `16` falls through to the `else` branch and is **ignored** — which is the correct outcome, not a compromise: a real screen-off event carries a null package, and reading it as a foreground event would attribute the user's last app with usage while the screen is off. Screen-off is closed by the `SCREEN_OFF` broadcast, which is unambiguous. `ForegroundEventParserTest.typeSixteenIsIgnoredSoScreenOffIsNotCreditedAsUsage` pins this.
@@ -20,7 +20,7 @@
 - No new source of truth: session boundaries use the core's own `MonotonicClock` at processing time. UsageStats event timestamps are read for nothing.
 - Usage is written exactly once per session, at close. No reconcile, no catch-up after service death.
 - Poll cadence 1s while screen is on; zero polls while the screen is dark. Notification rollover cadence 60s, only while a session is open.
-- Notification channel `IMPORTANCE_LOW`, `VISIBILITY_PRIVATE`, content intent opens the Wanci dashboard, id `2001`, channel id `wanci_monitoring`.
+- Notification channel `IMPORTANCE_LOW`, `VISIBILITY_PRIVATE`, content intent opens the Meotime dashboard, id `2001`, channel id `meotime_monitoring`.
 - Notification text literals (`"Monitoring active"`, `"Usage Access needed"`, `"Tap to grant it again."`) live in `NotificationController`, not in `strings.xml` — that class has no `Context`. Only `notification_channel_name` is a resource.
 - Tests: `./gradlew :shared:testAndroidHostTest` and `./gradlew :androidApp:testDebugUnitTest`; Android build check `./gradlew :androidApp:assembleDebug`.
 - Every task ends with a commit. Conventional Commits, subject ≤ 50 chars.
@@ -38,7 +38,7 @@
 ## File Structure Map
 
 ```
-shared/src/commonMain/kotlin/com/septaalfauzan/wanci/
+shared/src/commonMain/kotlin/com/septaalfauzan/meotime/
 ├── monitoring/
 │   ├── SessionSnapshot.kt             # NEW  - snapshot data class with liveSeconds()
 │   └── MonitoringCore.kt              # MOD  - onSessionChanged callback
@@ -48,12 +48,12 @@ shared/src/commonMain/kotlin/com/septaalfauzan/wanci/
 │   ├── navigation/AppNavHost.kt       # MOD  - pass new deps to OnboardingViewModel
 │   ├── format/UsageFormat.kt          # MOD  - formatShortDuration()
 │   └── onboarding/                    # MOD  - view model + screen
-shared/src/commonTest/kotlin/com/septaalfauzan/wanci/
+shared/src/commonTest/kotlin/com/septaalfauzan/meotime/
 ├── monitoring/MonitoringCoreTest.kt   # MOD  - onSessionChanged cases
 ├── presentation/format/UsageFormatTest.kt        # MOD  - formatShortDuration cases
 └── presentation/onboarding/OnboardingViewModelTest.kt  # MOD  - notification row
 
-androidApp/src/main/kotlin/com/septaalfauzan/wanci/
+androidApp/src/main/kotlin/com/septaalfauzan/meotime/
 ├── MainActivity.kt                    # MOD  - notification launcher + start-on-open
 ├── AppContainer.kt                    # MOD  - notifier/controller/startMonitoring
 ├── monitoring/
@@ -63,7 +63,7 @@ androidApp/src/main/kotlin/com/septaalfauzan/wanci/
 │   ├── MonitoringForegroundService.kt # NEW  - lifecycle + poll loop + receivers
 │   ├── BootReceiver.kt                # NEW  - BOOT_COMPLETED
 │   └── MonitoringAccessibilityService.kt  # DELETE
-androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/   # NEW source set
+androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/   # NEW source set
 ├── ForegroundEventParserTest.kt
 └── NotificationControllerTest.kt
 androidApp/src/main/AndroidManifest.xml # MOD
@@ -77,9 +77,9 @@ androidApp/build.gradle.kts             # MOD
 ### Task 1: `SessionSnapshot` + `onSessionChanged` on `MonitoringCore`
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/SessionSnapshot.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt`
-- Test: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt`
+- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/SessionSnapshot.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt`
+- Test: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt`
 
 **Interfaces:**
 - Consumes: nothing (first task).
@@ -187,20 +187,20 @@ Change the `core()` helper to forward the callback (existing call sites keep wor
     }
 ```
 
-Add the import `com.septaalfauzan.wanci.monitoring.SessionSnapshot` to the test file.
+Add the import `com.septaalfauzan.meotime.monitoring.SessionSnapshot` to the test file.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.MonitoringCoreTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.meotime.MonitoringCoreTest"`
 
 Expected: compilation failure — `Unresolved reference: SessionSnapshot` and `Too many arguments` / `No value passed for parameter` on `MonitoringCore`.
 
 - [ ] **Step 3: Add `SessionSnapshot`**
 
-Create `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/SessionSnapshot.kt`:
+Create `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/SessionSnapshot.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 /**
  * A read-only picture of an open session, published by [MonitoringCore] so a consumer can show
@@ -303,16 +303,16 @@ to:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.MonitoringCoreTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.meotime.MonitoringCoreTest"`
 
 Expected: PASS — all tests in `MonitoringCoreTest` green, including the five new ones.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/SessionSnapshot.kt \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/SessionSnapshot.kt \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt \
+        shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt
 git commit -m "feat: publish session changes from MonitoringCore"
 ```
 
@@ -321,8 +321,8 @@ git commit -m "feat: publish session changes from MonitoringCore"
 ### Task 2: `formatShortDuration`
 
 **Files:**
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/format/UsageFormat.kt`
-- Test: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/format/UsageFormatTest.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/format/UsageFormat.kt`
+- Test: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/format/UsageFormatTest.kt`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -331,8 +331,8 @@ git commit -m "feat: publish session changes from MonitoringCore"
 - [ ] **Step 1: Write the failing test**
 
 Append to `UsageFormatTest.kt` — `formatShortDuration` is in
-`com.septaalfauzan.wanci.presentation.format` while the test file's own package is the root
-`com.septaalfauzan.wanci`, so it needs an import alongside the existing `formatUsage` one:
+`com.septaalfauzan.meotime.presentation.format` while the test file's own package is the root
+`com.septaalfauzan.meotime`, so it needs an import alongside the existing `formatUsage` one:
 
 ```kotlin
     @Test
@@ -353,7 +353,7 @@ Append to `UsageFormatTest.kt` — `formatShortDuration` is in
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.UsageFormatTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.meotime.UsageFormatTest"`
 
 Expected: compilation failure — `Unresolved reference: formatShortDuration`.
 
@@ -387,15 +387,15 @@ fun formatShortDuration(seconds: Long): String {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.UsageFormatTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.meotime.UsageFormatTest"`
 
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/format/UsageFormat.kt \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/format/UsageFormatTest.kt
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/format/UsageFormat.kt \
+        shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/format/UsageFormatTest.kt
 git commit -m "feat: add a compact duration format for notifications"
 ```
 
@@ -404,9 +404,9 @@ git commit -m "feat: add a compact duration format for notifications"
 ### Task 3: Permission domain swap
 
 **Files:**
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain/Permissions.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/onboarding/OnboardingViewModel.kt`
-- Test: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/onboarding/OnboardingViewModelTest.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/domain/Permissions.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/onboarding/OnboardingViewModel.kt`
+- Test: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/onboarding/OnboardingViewModelTest.kt`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -422,15 +422,15 @@ git commit -m "feat: add a compact duration format for notifications"
 In `OnboardingViewModelTest.kt`, replace `RecordingPermissionNavigator`'s `openAccessibility` override by removing it, add a fake request, update `newViewModel`, and replace the affected test bodies. The whole file becomes:
 
 ```kotlin
-package com.septaalfauzan.wanci.presentation.onboarding
+package com.septaalfauzan.meotime.presentation.onboarding
 
-import com.septaalfauzan.wanci.FakeRepository
-import com.septaalfauzan.wanci.FakeTodayKey
-import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
-import com.septaalfauzan.wanci.domain.PermissionNavigator
-import com.septaalfauzan.wanci.domain.PermissionStatus
-import com.septaalfauzan.wanci.domain.PermissionStatusProvider
-import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
+import com.septaalfauzan.meotime.FakeRepository
+import com.septaalfauzan.meotime.FakeTodayKey
+import com.septaalfauzan.meotime.domain.NotificationPermissionRequest
+import com.septaalfauzan.meotime.domain.PermissionNavigator
+import com.septaalfauzan.meotime.domain.PermissionStatus
+import com.septaalfauzan.meotime.domain.PermissionStatusProvider
+import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -488,7 +488,7 @@ class OnboardingViewModelTest {
     private lateinit var viewModel: OnboardingViewModel
 
     private fun newViewModel(): OnboardingViewModel = OnboardingViewModel(
-        useCases = WanciUseCases(repository, FakeTodayKey("2026-09-25")),
+        useCases = MeotimeUseCases(repository, FakeTodayKey("2026-09-25")),
         permissionStatusProvider = permissions,
         permissionNavigator = navigator,
         notificationPermissionRequest = notificationRequest,
@@ -581,14 +581,14 @@ class OnboardingViewModelTest {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.presentation.onboarding.OnboardingViewModelTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.meotime.presentation.onboarding.OnboardingViewModelTest"`
 
 Expected: compilation failure — `Unresolved reference: NotificationPermissionRequest`, `PermissionStatus` named-argument mismatch, `Unresolved reference: requestNotification`.
 
 - [ ] **Step 3: Rewrite `Permissions.kt`**
 
 ```kotlin
-package com.septaalfauzan.wanci.domain
+package com.septaalfauzan.meotime.domain
 
 data class PermissionStatus(
     val usageAccess: Boolean,
@@ -623,15 +623,15 @@ fun interface NotificationPermissionRequest {
 - [ ] **Step 4: Rewrite `OnboardingViewModel.kt`**
 
 ```kotlin
-package com.septaalfauzan.wanci.presentation.onboarding
+package com.septaalfauzan.meotime.presentation.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
-import com.septaalfauzan.wanci.domain.PermissionNavigator
-import com.septaalfauzan.wanci.domain.PermissionStatus
-import com.septaalfauzan.wanci.domain.PermissionStatusProvider
-import com.septaalfauzan.wanci.domain.useCase.WanciUseCases
+import com.septaalfauzan.meotime.domain.NotificationPermissionRequest
+import com.septaalfauzan.meotime.domain.PermissionNavigator
+import com.septaalfauzan.meotime.domain.PermissionStatus
+import com.septaalfauzan.meotime.domain.PermissionStatusProvider
+import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -653,7 +653,7 @@ data class OnboardingUiState(
 )
 
 class OnboardingViewModel(
-    private val useCases: WanciUseCases,
+    private val useCases: MeotimeUseCases,
     private val permissionStatusProvider: PermissionStatusProvider,
     private val permissionNavigator: PermissionNavigator,
     private val notificationPermissionRequest: NotificationPermissionRequest,
@@ -698,16 +698,16 @@ class OnboardingViewModel(
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.wanci.presentation.onboarding.OnboardingViewModelTest"`
+Run: `./gradlew :shared:testAndroidHostTest --tests "com.septaalfauzan.meotime.presentation.onboarding.OnboardingViewModelTest"`
 
 Expected: PASS — all 7 tests green.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain/Permissions.kt \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/onboarding/OnboardingViewModel.kt \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/onboarding/OnboardingViewModelTest.kt
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/domain/Permissions.kt \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/onboarding/OnboardingViewModel.kt \
+        shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/onboarding/OnboardingViewModelTest.kt
 git commit -m "feat: swap accessibility permission for notification"
 ```
 
@@ -716,25 +716,25 @@ git commit -m "feat: swap accessibility permission for notification"
 ### Task 4: Onboarding screen, app deps, navigation wiring
 
 **Files:**
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/App.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/navigation/AppNavHost.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/onboarding/OnboardingScreen.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/App.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/navigation/AppNavHost.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/onboarding/OnboardingScreen.kt`
 
 **Interfaces:**
 - Consumes: `NotificationPermissionRequest`, `OnboardingViewModel(... notificationPermissionRequest, startMonitoring)` from Task 3.
-- Produces: `WanciAppDependencies.notificationPermissionRequest: NotificationPermissionRequest` and `WanciAppDependencies.startMonitoring: () -> Unit`. Task 7 supplies both from `AppContainer`.
+- Produces: `MeotimeAppDependencies.notificationPermissionRequest: NotificationPermissionRequest` and `MeotimeAppDependencies.startMonitoring: () -> Unit`. Task 7 supplies both from `AppContainer`.
 
 - [ ] **Step 1: Add the dependency fields**
 
 In `presentation/App.kt`, add the import and the two fields:
 
 ```kotlin
-import com.septaalfauzan.wanci.domain.NotificationPermissionRequest
+import com.septaalfauzan.meotime.domain.NotificationPermissionRequest
 ```
 
 ```kotlin
-data class WanciAppDependencies(
-    val useCases: WanciUseCases,
+data class MeotimeAppDependencies(
+    val useCases: MeotimeUseCases,
     val todayKey: TodayKey,
     val permissionStatusProvider: PermissionStatusProvider,
     val permissionNavigator: PermissionNavigator,
@@ -775,7 +775,7 @@ In `onboarding/OnboardingScreen.kt`, replace the accessibility `PermissionRow` b
 ```kotlin
         PermissionRow(
             title = "Notifications",
-            detail = "Show the reminder while Wanci is not open.",
+            detail = "Show the reminder while Meotime is not open.",
             granted = state.permissionStatus.notification,
             onClick = viewModel::requestNotification,
         )
@@ -806,14 +806,14 @@ its siblings — do not invent a new style:
 ```
 
 Note `state.saving` has no reader either. Bind it to the continue button's `enabled` only if
-`WanciButton` already accepts an `enabled` parameter; if it does not, leave `saving` alone rather
+`MeotimeButton` already accepts an `enabled` parameter; if it does not, leave `saving` alone rather
 than widening this task into a component change.
 
 - [ ] **Step 4: Compile the shared module**
 
 Run: `./gradlew :shared:compileAndroidMain`
 
-Expected: FAIL — `androidApp` is not compiled here, but `shared` itself must compile. If it fails on anything other than a `WanciAppDependencies` construction site outside `androidApp`, fix that site. `androidApp`'s `toDependencies` cannot be checked until Task 7, so the next gate for the whole graph is Task 7's `assembleDebug`.
+Expected: FAIL — `androidApp` is not compiled here, but `shared` itself must compile. If it fails on anything other than a `MeotimeAppDependencies` construction site outside `androidApp`, fix that site. `androidApp`'s `toDependencies` cannot be checked until Task 7, so the next gate for the whole graph is Task 7's `assembleDebug`.
 
 - [ ] **Step 5: Run the shared tests as a regression gate**
 
@@ -824,9 +824,9 @@ Expected: FAIL is *not* acceptable for existing tests; only the onboarding suite
 - [ ] **Step 6: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/App.kt \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/navigation/AppNavHost.kt \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/onboarding/OnboardingScreen.kt
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/App.kt \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/navigation/AppNavHost.kt \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/onboarding/OnboardingScreen.kt
 git commit -m "feat: show the notification permission in onboarding"
 ```
 
@@ -835,9 +835,9 @@ git commit -m "feat: show the notification permission in onboarding"
 ### Task 5: `parseForegroundPackage`
 
 **Files:**
-- Create: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/ForegroundEventParser.kt`
+- Create: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/ForegroundEventParser.kt`
 - Modify: `androidApp/build.gradle.kts`
-- Create: `androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/ForegroundEventParserTest.kt`
+- Create: `androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/ForegroundEventParserTest.kt`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -859,10 +859,10 @@ In `androidApp/build.gradle.kts`, add to `dependencies`:
 
 - [ ] **Step 2: Write the failing test**
 
-Create `androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/ForegroundEventParserTest.kt`:
+Create `androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/ForegroundEventParserTest.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 import android.app.usage.UsageEvents
 import kotlin.test.Test
@@ -992,16 +992,16 @@ class ForegroundEventParserTest {
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.wanci.monitoring.ForegroundEventParserTest"`
+Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.meotime.monitoring.ForegroundEventParserTest"`
 
 Expected: compilation failure — `Unresolved reference: RawUsageEvent`, `Unresolved reference: parseForegroundPackage`.
 
 - [ ] **Step 4: Implement the parser**
 
-Create `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/ForegroundEventParser.kt`:
+Create `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/ForegroundEventParser.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 import android.app.usage.UsageEvents
 
@@ -1082,7 +1082,7 @@ internal fun hasForegroundSignal(events: List<RawUsageEvent>): Boolean =
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.wanci.monitoring.ForegroundEventParserTest"`
+Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.meotime.monitoring.ForegroundEventParserTest"`
 
 Expected: PASS — all 12 tests green.
 
@@ -1090,8 +1090,8 @@ Expected: PASS — all 12 tests green.
 
 ```bash
 git add androidApp/build.gradle.kts \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/ForegroundEventParser.kt \
-        androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/ForegroundEventParserTest.kt
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/ForegroundEventParser.kt \
+        androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/ForegroundEventParserTest.kt
 git commit -m "feat: parse the foreground package from usage events"
 ```
 
@@ -1100,30 +1100,30 @@ git commit -m "feat: parse the foreground package from usage events"
 ### Task 6: `NotificationController` + `AndroidNotifier`
 
 **Files:**
-- Create: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/NotificationController.kt`
-- Create: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/AndroidNotifier.kt`
+- Create: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/NotificationController.kt`
+- Create: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/AndroidNotifier.kt`
 - Modify: `androidApp/src/main/res/values/strings.xml`
-- Test: `androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/NotificationControllerTest.kt`
+- Test: `androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/NotificationControllerTest.kt`
 
 **Interfaces:**
 - Consumes: `SessionSnapshot` from Task 1, `formatShortDuration` from Task 2.
 - Produces:
-  - `sealed interface NotificationState { data object Idle; data class Session(val snapshot: SessionSnapshot); data object UsageAccessNeeded }` in package `com.septaalfauzan.wanci.monitoring`
+  - `sealed interface NotificationState { data object Idle; data class Session(val snapshot: SessionSnapshot); data object UsageAccessNeeded }` in package `com.septaalfauzan.meotime.monitoring`
   - `fun interface Notifier { fun update(title: String, text: String) }`
   - `NotificationController(notifier: Notifier, clock: MonotonicClock, scope: CoroutineScope, rolloverIntervalMillis: Long = 60_000L)` with `val state: NotificationState`, and methods `start()`, `onSessionChanged(SessionSnapshot?)`, `onLimitCrossed()`, `onUsageAccessRevoked()`
   - `AndroidNotifier(context: Context) : Notifier` with `fun latest(): Notification`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/NotificationControllerTest.kt`:
+Create `androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/NotificationControllerTest.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
-import com.septaalfauzan.wanci.monitoring.MonotonicClock
-import com.septaalfauzan.wanci.monitoring.NotificationController
-import com.septaalfauzan.wanci.monitoring.NotificationState
-import com.septaalfauzan.wanci.monitoring.SessionSnapshot
+import com.septaalfauzan.meotime.monitoring.MonotonicClock
+import com.septaalfauzan.meotime.monitoring.NotificationController
+import com.septaalfauzan.meotime.monitoring.NotificationState
+import com.septaalfauzan.meotime.monitoring.SessionSnapshot
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -1303,7 +1303,7 @@ class NotificationControllerTest {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.wanci.monitoring.NotificationControllerTest"`
+Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.meotime.monitoring.NotificationControllerTest"`
 
 Expected: compilation failure — `Unresolved reference: NotificationController`, `NotificationState`, `Notifier`, `SessionSnapshot` (the last one is in `shared`, which is on the unit-test classpath via `implementation(project(":shared"))`).
 
@@ -1313,7 +1313,7 @@ Replace `androidApp/src/main/res/values/strings.xml`:
 
 ```xml
 <resources>
-    <string name="app_name">Wanci</string>
+    <string name="app_name">Meotime</string>
     <string name="notification_channel_name">Screen-time monitoring</string>
 </resources>
 ```
@@ -1326,13 +1326,13 @@ reads it.
 
 - [ ] **Step 4: Implement the state machine**
 
-Create `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/NotificationController.kt`:
+Create `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/NotificationController.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
-import com.septaalfauzan.wanci.monitoring.MonotonicClock
-import com.septaalfauzan.wanci.presentation.format.formatShortDuration
+import com.septaalfauzan.meotime.monitoring.MonotonicClock
+import com.septaalfauzan.meotime.presentation.format.formatShortDuration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1461,10 +1461,10 @@ class NotificationController(
 
 - [ ] **Step 5: Implement the Android notifier**
 
-Create `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/AndroidNotifier.kt`:
+Create `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/AndroidNotifier.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -1472,7 +1472,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import com.septaalfauzan.wanci.R
+import com.septaalfauzan.meotime.R
 
 /**
  * Posts the monitoring notification and owns its channel.
@@ -1539,7 +1539,7 @@ class AndroidNotifier(private val context: Context) : Notifier {
     }
 
     companion object {
-        const val CHANNEL_ID = "wanci_monitoring"
+        const val CHANNEL_ID = "meotime_monitoring"
         const val NOTIFICATION_ID = 2001
     }
 }
@@ -1547,17 +1547,17 @@ class AndroidNotifier(private val context: Context) : Notifier {
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.wanci.monitoring.NotificationControllerTest"`
+Run: `./gradlew :androidApp:testDebugUnitTest --tests "com.septaalfauzan.meotime.monitoring.NotificationControllerTest"`
 
 Expected: PASS — all 10 tests green.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/NotificationController.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/AndroidNotifier.kt \
+git add androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/NotificationController.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/AndroidNotifier.kt \
         androidApp/src/main/res/values/strings.xml \
-        androidApp/src/test/kotlin/com/septaalfauzan/wanci/monitoring/NotificationControllerTest.kt
+        androidApp/src/test/kotlin/com/septaalfauzan/meotime/monitoring/NotificationControllerTest.kt
 git commit -m "feat: mirror the session into a persistent notification"
 ```
 
@@ -1566,23 +1566,23 @@ git commit -m "feat: mirror the session into a persistent notification"
 ### Task 7: `MonitoringForegroundService`, `BootReceiver`, host wiring
 
 **Files:**
-- Create: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringForegroundService.kt`
-- Create: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/BootReceiver.kt`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/MainActivity.kt`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/permission/PermissionChecks.kt`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/permission/PermissionActions.kt`
+- Create: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringForegroundService.kt`
+- Create: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/BootReceiver.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/AppContainer.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/MainActivity.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/permission/PermissionChecks.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/permission/PermissionActions.kt`
 
 **Interfaces:**
-- Consumes: `NotificationController`, `AndroidNotifier` (Task 6), `parseForegroundPackage` (Task 5), `WanciAppDependencies.notificationPermissionRequest` / `.startMonitoring` (Task 4), `PermissionStatus.notification` (Task 3).
+- Consumes: `NotificationController`, `AndroidNotifier` (Task 6), `parseForegroundPackage` (Task 5), `MeotimeAppDependencies.notificationPermissionRequest` / `.startMonitoring` (Task 4), `PermissionStatus.notification` (Task 3).
 - Produces: `MonitoringForegroundService.start(context: Context)`, `AppContainer.startMonitoring()`, `PermissionActions : PermissionNavigator` (accessibility method gone), `PermissionChecks.status(context)`.
 
 - [ ] **Step 1: Write the service**
 
-Create `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringForegroundService.kt`:
+Create `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringForegroundService.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 import android.app.Service
 import android.app.usage.UsageEvents
@@ -1594,8 +1594,8 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import com.septaalfauzan.wanci.AppContainer
-import com.septaalfauzan.wanci.WanciApplication
+import com.septaalfauzan.meotime.AppContainer
+import com.septaalfauzan.meotime.MeotimeApplication
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1604,10 +1604,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Hosts the poll loop that makes Wanci work with the app closed.
+ * Hosts the poll loop that makes Meotime work with the app closed.
  *
  * The trade this makes is explicit: Android's price for an always-alive process is a permanent
- * notification. A screen-time limiter that only ran while Wanci was open would enforce nothing, and
+ * notification. A screen-time limiter that only ran while Meotime was open would enforce nothing, and
  * a periodic worker would add hours of latency to a limit measured in minutes.
  *
  * **Why the event timestamp is ignored.** Polling delivers events one to five seconds late, and
@@ -1655,7 +1655,7 @@ class MonitoringForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        container = (application as? WanciApplication)?.container
+        container = (application as? MeotimeApplication)?.container
         // Read once at create time rather than defaulting to on: a service started by
         // BOOT_COMPLETED routinely runs while the screen is still dark, and polling then would
         // keep the wake lock alive with nothing to detect. The broadcast only fires on a
@@ -1713,7 +1713,7 @@ class MonitoringForegroundService : Service() {
                 val packageName = try {
                     queryForegroundPackage(watermarkMillis, now)
                 } catch (_: SecurityException) {
-                    // Usage access was revoked from Settings while Wanci ran. The poll loop cannot
+                    // Usage access was revoked from Settings while Meotime ran. The poll loop cannot
                     // recover on its own — there is nothing to poll with — and retrying would spin.
                     // The notification says what happened; onboarding is the way back.
                     appContainer.notificationController.onUsageAccessRevoked()
@@ -1817,7 +1817,7 @@ class MonitoringForegroundService : Service() {
 Imports required, and no others: `android.app.Service`, `android.app.usage.UsageStatsManager`,
 `android.content.BroadcastReceiver`, `android.content.Context`, `android.content.Intent`,
 `android.content.IntentFilter`, `android.content.pm.ServiceInfo`, `android.os.Build`,
-`android.os.IBinder`, `com.septaalfauzan.wanci.AppContainer`, `com.septaalfauzan.wanci.WanciApplication`,
+`android.os.IBinder`, `com.septaalfauzan.meotime.AppContainer`, `com.septaalfauzan.meotime.MeotimeApplication`,
 `java.util.concurrent.atomic.AtomicLong`, `kotlinx.coroutines.Job`, `kotlinx.coroutines.delay`,
 `kotlinx.coroutines.isActive`, `kotlinx.coroutines.launch`, `kotlinx.coroutines.sync.withLock`.
 
@@ -1827,10 +1827,10 @@ which lives in its own file.
 
 - [ ] **Step 2: Write the boot receiver**
 
-Create `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/BootReceiver.kt`:
+Create `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/BootReceiver.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -1840,7 +1840,7 @@ import android.content.Intent
  * Restarts monitoring after a reboot.
  *
  * A foreground service does not survive one, and without this the limiter is silently dead until
- * the user happens to open Wanci — which breaks the promise the accessibility service used to get
+ * the user happens to open Meotime — which breaks the promise the accessibility service used to get
  * from the system for free. It does not check permissions: starting the service is idempotent and
  * it degrades to the "Usage Access needed" notification if usage access was not restored.
  */
@@ -1854,7 +1854,7 @@ class BootReceiver : BroadcastReceiver() {
 
 - [ ] **Step 3: Wire `AppContainer`**
 
-Add the import `com.septaalfauzan.wanci.domain.NotificationPermissionRequest`.
+Add the import `com.septaalfauzan.meotime.domain.NotificationPermissionRequest`.
 
 Add this interface at file scope, after the imports and before `class AppContainer`:
 
@@ -1944,7 +1944,7 @@ to be declared above it:
     fun startMonitoring() = MonitoringForegroundService.start(context)
 ```
 
-In `toDependencies`, add two fields to the `WanciAppDependencies(...)` call:
+In `toDependencies`, add two fields to the `MeotimeAppDependencies(...)` call:
 
 ```kotlin
             // The launcher lives in the Activity, so the shared graph only ever sees the request
@@ -1956,18 +1956,18 @@ In `toDependencies`, add two fields to the `WanciAppDependencies(...)` call:
             startMonitoring = { startMonitoring() },
 ```
 
-Add these imports: `com.septaalfauzan.wanci.monitoring.AndroidNotifier`,
-`com.septaalfauzan.wanci.monitoring.MonitoringForegroundService`,
-`com.septaalfauzan.wanci.monitoring.NotificationController`.
+Add these imports: `com.septaalfauzan.meotime.monitoring.AndroidNotifier`,
+`com.septaalfauzan.meotime.monitoring.MonitoringForegroundService`,
+`com.septaalfauzan.meotime.monitoring.NotificationController`.
 
 - [ ] **Step 4: Update `MainActivity`**
 
 Add these imports: `android.Manifest`, `android.content.pm.PackageManager`, `android.os.Build`,
 `androidx.activity.result.contract.ActivityResultContracts`,
-`com.septaalfauzan.wanci.permission.PermissionChecks`.
+`com.septaalfauzan.meotime.permission.PermissionChecks`.
 
-`NotificationPermissionHost` is in `com.septaalfauzan.wanci`, the same package as `MainActivity`,
-so it needs no import. `WanciApplication` likewise.
+`NotificationPermissionHost` is in `com.septaalfauzan.meotime`, the same package as `MainActivity`,
+so it needs no import. `MeotimeApplication` likewise.
 
 Add these members inside the class:
 
@@ -2008,7 +2008,7 @@ which runs during construction — legal because `ComponentActivity` supports re
 Insert into `onCreate`, immediately after `super.onCreate(savedInstanceState)`:
 
 ```kotlin
-        val container = application as WanciApplication
+        val container = application as MeotimeApplication
         container.notificationPermissionHost = permissionHost
         // The one re-entry for a force-stop: the system will not restart anything the user stopped
         // by hand, and opening the app is the only signal that they want it running again. Guarded
@@ -2022,7 +2022,7 @@ the existing `setContent` block to reuse the new local instead of re-casting —
 
 ```kotlin
             val deps = remember(deepLink) {
-                (application as WanciApplication).container.toDependencies(deepLink)
+                (application as MeotimeApplication).container.toDependencies(deepLink)
             }
 ```
 
@@ -2037,7 +2037,7 @@ launcher:
 
 ```kotlin
     override fun onDestroy() {
-        val container = application as? WanciApplication
+        val container = application as? MeotimeApplication
         if (container?.notificationPermissionHost === permissionHost) {
             container.notificationPermissionHost = null
         }
@@ -2054,13 +2054,13 @@ above keeps the teardown from clearing a host a newer instance already installed
 Replace `PermissionChecks.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.permission
+package com.septaalfauzan.meotime.permission
 
 import android.app.AppOpsManager
 import android.app.NotificationManager
 import android.content.Context
 import android.provider.Settings
-import com.septaalfauzan.wanci.domain.PermissionStatus
+import com.septaalfauzan.meotime.domain.PermissionStatus
 
 object PermissionChecks {
     fun status(context: Context): PermissionStatus = PermissionStatus(
@@ -2097,13 +2097,13 @@ object PermissionChecks {
 Replace `PermissionActions.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.permission
+package com.septaalfauzan.meotime.permission
 
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import com.septaalfauzan.wanci.domain.PermissionNavigator
+import com.septaalfauzan.meotime.domain.PermissionNavigator
 
 class PermissionActions(private val context: Context) : PermissionNavigator {
     override fun openUsageAccess() {
@@ -2136,8 +2136,8 @@ above, and each has one fix:
 
 | Compiler error | Cause | Fix |
 |---|---|---|
-| `WanciAppDependencies` missing arguments | Task 4 added the fields; Step 3 must pass them | Check Step 3's `toDependencies` block |
-| `Unresolved reference: SessionSnapshot` in `androidApp` | `implementation(project(":shared"))` is already in place | Verify the import path is `com.septaalfauzan.wanci.monitoring.SessionSnapshot` |
+| `MeotimeAppDependencies` missing arguments | Task 4 added the fields; Step 3 must pass them | Check Step 3's `toDependencies` block |
+| `Unresolved reference: SessionSnapshot` in `androidApp` | `implementation(project(":shared"))` is already in place | Verify the import path is `com.septaalfauzan.meotime.monitoring.SessionSnapshot` |
 | `Unresolved reference: androidNotifier` | `internal` visibility across packages | `notificationController` and `notifier` are read from the `monitoring` package — `internal` is module-wide in Kotlin, so this compiles; if it does not, make them `public` |
 | Unused-import warnings in the service | — | The import list in Step 1 is exact |
 
@@ -2150,12 +2150,12 @@ Expected: all suites PASS. The parser and controller suites from Tasks 5 and 6 m
 - [ ] **Step 8: Commit**
 
 ```bash
-git add androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringForegroundService.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/BootReceiver.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/MainActivity.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/permission/PermissionChecks.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/permission/PermissionActions.kt \
+git add androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringForegroundService.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/BootReceiver.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/AppContainer.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/MainActivity.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/permission/PermissionChecks.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/permission/PermissionActions.kt \
         androidApp/build.gradle.kts
 git commit -m "feat: run monitoring from a foreground service"
 ```
@@ -2166,11 +2166,11 @@ git commit -m "feat: run monitoring from a foreground service"
 
 **Files:**
 - Modify: `androidApp/src/main/AndroidManifest.xml`
-- Delete: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringAccessibilityService.kt`
+- Delete: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringAccessibilityService.kt`
 - Delete: `androidApp/src/main/res/xml/accessibility_service_config.xml`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt` (KDoc only)
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/dashboard/DashboardScreen.kt` (KDoc only)
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/apps/InstalledAppsProviderAndroid.kt` (KDoc only)
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt` (KDoc only)
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/dashboard/DashboardScreen.kt` (KDoc only)
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/apps/InstalledAppsProviderAndroid.kt` (KDoc only)
 
 **Interfaces:**
 - Consumes: `MonitoringForegroundService`, `BootReceiver` (Task 7).
@@ -2204,7 +2204,7 @@ Replace `androidApp/src/main/AndroidManifest.xml`:
     </queries>
 
     <application
-        android:name=".WanciApplication"
+        android:name=".MeotimeApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -2251,7 +2251,7 @@ Replace `androidApp/src/main/AndroidManifest.xml`:
 - [ ] **Step 2: Delete the accessibility service and its config**
 
 ```bash
-git rm androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringAccessibilityService.kt \
+git rm androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringAccessibilityService.kt \
        androidApp/src/main/res/xml/accessibility_service_config.xml
 ```
 
@@ -2259,7 +2259,7 @@ The `res/xml` directory becomes empty; git removes it. Confirm with `ls androidA
 
 - [ ] **Step 3: Update the stale KDoc**
 
-In `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt`, the class KDoc still says `UsageStatsManager` is the thing being replaced. Change:
+In `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt`, the class KDoc still says `UsageStatsManager` is the thing being replaced. Change:
 
 ```
  * Usage is written exactly once, when the session closes. Nothing is written during a session, so
@@ -2328,7 +2328,7 @@ to:
         // and reopening would restart the clock, and the run would become two writes instead of one.
 ```
 
-In `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/dashboard/DashboardScreen.kt`, change:
+In `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/dashboard/DashboardScreen.kt`, change:
 
 ```
  * of the observed app list, so a minute recorded by the accessibility service shows up here while
@@ -2340,7 +2340,7 @@ to:
  * of the observed app list, so a minute recorded by the monitoring service shows up here while
 ```
 
-In `androidApp/src/main/kotlin/com/septaalfauzan/wanci/apps/InstalledAppsProviderAndroid.kt`, change:
+In `androidApp/src/main/kotlin/com/septaalfauzan/meotime/apps/InstalledAppsProviderAndroid.kt`, change:
 
 ```
  * the accessibility service can only ever see an app that was started somehow, and a
@@ -2400,7 +2400,7 @@ Expected: launch succeeds and the notification permission row appears in onboard
 
 - [ ] **Step 2: The acceptance criterion for the whole migration**
 
-Open a banking app (mBanking or any equivalent that blocks on *any* enabled accessibility service) with Wanci installed, monitoring running and Wanci's own accessibility setting irrelevant.
+Open a banking app (mBanking or any equivalent that blocks on *any* enabled accessibility service) with Meotime installed, monitoring running and Meotime's own accessibility setting irrelevant.
 
 Expected: the banking app opens normally. This is the reason the spec exists; if it fails, the migration has not achieved its goal regardless of what else works.
 
@@ -2418,15 +2418,15 @@ Expected: the overlay appears at the limit, and it reappears on every re-entry.
 
 - [ ] **Step 5: Reboot**
 
-Reboot the device. Do not open Wanci. Open a monitored app that is already over its limit.
+Reboot the device. Do not open Meotime. Open a monitored app that is already over its limit.
 
 Expected: the overlay appears, which can only happen if the boot receiver started the service.
 
 - [ ] **Step 6: Revoke usage access**
 
-Revoke Usage Access for Wanci in system Settings while monitoring is running.
+Revoke Usage Access for Meotime in system Settings while monitoring is running.
 
-Expected: the notification flips to "Usage Access needed" within about a second, the service does not crash, and re-opening Wanci's onboarding offers the permission again. No auto-restart loop.
+Expected: the notification flips to "Usage Access needed" within about a second, the service does not crash, and re-opening Meotime's onboarding offers the permission again. No auto-restart loop.
 
 - [ ] **Step 7: Screen-off accrual**
 
@@ -2436,6 +2436,6 @@ Expected: usage accrues only for the awake seconds, and the notification reads "
 
 - [ ] **Step 8: Force-stop recovery**
 
-Force-stop Wanci from the app switcher, then open Wanci from the launcher without granting anything new.
+Force-stop Meotime from the app switcher, then open Meotime from the launcher without granting anything new.
 
 Expected: monitoring resumes, because `MainActivity.onCreate` is the re-entry for a force-stop.

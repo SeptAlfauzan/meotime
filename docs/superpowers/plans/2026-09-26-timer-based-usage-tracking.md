@@ -23,16 +23,16 @@
 
 | Action | File | Responsibility |
 |---|---|---|
-| Modify | `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt` | Add `checkCurrentApp`, `activeTimers`, `scope`, `onOverlayDecision`, `startUsageTimer`, `stopUsageTimer`, modify `onForegroundChange` |
-| Modify | `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt` | Add timer tests |
-| Modify | `androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt` | Pass `scope` and `onOverlayDecision` to `MonitoringCore` |
+| Modify | `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt` | Add `checkCurrentApp`, `activeTimers`, `scope`, `onOverlayDecision`, `startUsageTimer`, `stopUsageTimer`, modify `onForegroundChange` |
+| Modify | `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt` | Add timer tests |
+| Modify | `androidApp/src/main/kotlin/com/septaalfauzan/meotime/AppContainer.kt` | Pass `scope` and `onOverlayDecision` to `MonitoringCore` |
 
 ---
 
 ### Task 1: Modify MonitoringCore
 
 **Files:**
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt`
 
 **Before:** `MonitoringCore` has constructor `(repository, todayKey, selfPackageName)`, no coroutine scope, no timer, no `checkCurrentApp`.
 **After:** `MonitoringCore` has constructor `(repository, todayKey, selfPackageName, scope, onOverlayDecision)`, manages per-app timer jobs, includes `checkCurrentApp`.
@@ -218,7 +218,7 @@ Confirm no `android.*` imports were added.
 ### Task 2: Update AppContainer
 
 **Files:**
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/AppContainer.kt`
 
 - [ ] **Step 1: Pass `scope` and `onOverlayDecision` to `MonitoringCore`**
 
@@ -242,7 +242,7 @@ Run `./gradlew :androidApp:compileDebugKotlin`
 ### Task 3: Write tests for timer behavior
 
 **Files:**
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt`
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt`
 
 - [ ] **Step 1: Add `FakeRepository` helper for recording overlay decisions**
 
@@ -343,7 +343,7 @@ Run `./gradlew :shared:jvmTest` — all existing tests must pass. The `onForegro
 - [ ] **Step 4: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt androidApp/src/main/kotlin/com/septaalfauzan/meotime/AppContainer.kt
 git commit -m "feat: add timer-based continuous usage tracking to MonitoringCore"
 ```
 

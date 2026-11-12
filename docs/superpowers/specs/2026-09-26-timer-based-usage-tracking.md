@@ -1,4 +1,4 @@
-# Wanci — Timer-Based Continuous Usage Tracking
+# Meotime — Timer-Based Continuous Usage Tracking
 
 Date: 2026-09-26
 Status: Draft
@@ -108,7 +108,7 @@ User switches to App C
 - **Service death during timer**: Timer lost. `reconcile` heals gap. `checkCurrentApp` on next enter reads Room (may be slightly behind).
 - **Screen off**: `screenReceiver` → `enqueueForegroundChange(null, ...)` → `onForegroundChange(null, ...)` → stops timer, persists to Room.
 - **App uninstalled**: `getMonitoredApp` returns null → timer not started. No-op.
-- **Wanci itself**: `selfPackageName` check in `startUsageTimer`/`checkCurrentApp` prevents self-monitoring.
+- **Meotime itself**: `selfPackageName` check in `startUsageTimer`/`checkCurrentApp` prevents self-monitoring.
 - **Split-screen**: `TYPE_WINDOW_STATE_CHANGED` fires with top-window package. Timer tracks the top app.
 
 ## Files Changed

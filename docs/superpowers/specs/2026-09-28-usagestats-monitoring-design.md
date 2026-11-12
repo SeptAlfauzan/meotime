@@ -1,4 +1,4 @@
-# Wanci — Accessibility to UsageStatsManager Migration
+# Meotime — Accessibility to UsageStatsManager Migration
 
 Date: 2026-09-28
 Status: Draft
@@ -36,7 +36,7 @@ The foreground-detection source must therefore change from `AccessibilityService
 | 5 | Accessibility path is **fully deleted**: service, config XML, manifest block, permission check, status field, navigator method, onboarding row, description string. | Keeping a disabled fallback buys nothing: mBanking trips on *other apps'* accessibility services too, so an in-app toggle could never help. Git history is the archive. |
 | 6 | Session boundaries use the core's own clock at processing time; UsageStats event timestamps are ignored. | Polling delivers events 1–5s late, so each switch under-counts by that much — noise against minute-scale limits. Using event timestamps would reintroduce a second time source (`elapsedRealtime` vs `uptimeMillis`) that the 2026-09-27 spec deliberately removed. |
 | 7 | No catch-up after service death: on start, poll only from "now" forward. | Same accepted loss as the accessibility path. Event replay would be *safe* here (unlike the deleted reconcile, it would deliver ordered open/close pairs, not aggregates), but it is an accuracy upgrade with its own test surface — not needed for this migration. |
-| 8 | `BOOT_COMPLETED` receiver starts the service. | Foreground services do not survive reboot; without this the limiter silently dies until the user next opens Wanci, breaking the "works without opening the app" promise that accessibility got for free from the system. |
+| 8 | `BOOT_COMPLETED` receiver starts the service. | Foreground services do not survive reboot; without this the limiter silently dies until the user next opens Meotime, breaking the "works without opening the app" promise that accessibility got for free from the system. |
 | 9 | Service starts on: onboarding completion (explicit `deps.startMonitoring()` from the onboarding finish path), `BOOT_COMPLETED`, and `MainActivity.onCreate` when permissions are already granted (idempotent, `START_STICKY`). | Covers first-run, reboot, and the force-stop case (system won't restart a force-stopped app; opening it is the only re-entry). One idempotent start path, no state machine. |
 | 10 | `SecurityException` from `queryEvents` (usage access revoked mid-run) stops the poll loop; notification switches to `"Usage Access needed"`; service stays alive. | Revocation is rare; onboarding is the re-entry path. No auto-restart loop on re-grant. |
 | 11 | Within one 1s poll window, only the latest foreground package is delivered to the core. | Core already drops same-package repeats. Quick A→B→A switches inside one window lose at most one second of B — accepted under Decision 6. Keeps delivery to one call/poll. |
@@ -85,7 +85,7 @@ Owns channel creation (`IMPORTANCE_LOW` — the overlay owns interruption), snap
 
 - Inputs: `onSessionChanged` callback from core (package, app name, start timestamp, stored seconds, limit seconds), `MonotonicClock`, limit-crossing signal, permission-lost signal.
 - Session opened/updated → format `"App · Xm / Ym"`, `notify()`; own 60s rollover ticker runs only while a session is active; session closed → `"Monitoring active"`; poll stopped on `SecurityException` → `"Usage Access needed"` with tap intent to `ACTION_USAGE_ACCESS_SETTINGS`.
-- `VISIBILITY_PRIVATE`, content intent opens Wanci dashboard.
+- `VISIBILITY_PRIVATE`, content intent opens Meotime dashboard.
 
 ### MonitoringCore change
 
@@ -152,7 +152,7 @@ Battery: a 1s `queryEvents` over a ~2–5s window is a single indexed query — 
 - **`NotificationController`** (new, host, fake notifier) — content per state, 60s ticker active only during a session, revoke swap, session-close revert.
 - **`OnboardingViewModelTest`** — fake navigator order becomes `usage → overlay → notification`.
 - **Manifest/lint** — `manifestDebug` output sanity: no accessibility service, FGS type declared, boot receiver present.
-- **Manual (no `androidTest` source set):** mBanking opens with Wanci running (the acceptance criterion for this whole spec); app switch updates notification within ~1s + event lag; overlay fires past limit; reboot resumes monitoring; revoke usage access → notification flips, no crash; screen-off accrual stops.
+- **Manual (no `androidTest` source set):** mBanking opens with Meotime running (the acceptance criterion for this whole spec); app switch updates notification within ~1s + event lag; overlay fires past limit; reboot resumes monitoring; revoke usage access → notification flips, no crash; screen-off accrual stops.
 
 ## File changes
 

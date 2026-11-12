@@ -55,15 +55,15 @@ This is a rename-heavy refactor across five layers, so several tasks cannot prod
 The schema is the floor everything else stands on: no later task compiles until the database can hold seconds, and a wrong migration silently wipes every user's monitored apps on upgrade.
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.kt` — the SQL only; the `Migration` cannot be common
-- Create: `shared/src/androidMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.android.kt`
-- Create: `shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local/WanciMigrations.ios.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/WanciDatabase.kt:11-19`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/entity/DailyUsageEntity.kt:6-11`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local/DailyUsageDao.kt:12-28`
-- Modify: `shared/src/androidMain/kotlin/com/septaalfauzan/wanci/data/local/PlatformDatabase.android.kt:20-22`
-- Modify: `shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local/PlatformDatabase.ios.kt:18-21`
-- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/local/WanciDatabaseTest.kt`
+- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/local/MeotimeMigrations.kt` — the SQL only; the `Migration` cannot be common
+- Create: `shared/src/androidMain/kotlin/com/septaalfauzan/meotime/data/local/MeotimeMigrations.android.kt`
+- Create: `shared/src/iosMain/kotlin/com/septaalfauzan/meotime/data/local/MeotimeMigrations.ios.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/local/MeotimeDatabase.kt:11-19`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/local/entity/DailyUsageEntity.kt:6-11`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/local/DailyUsageDao.kt:12-28`
+- Modify: `shared/src/androidMain/kotlin/com/septaalfauzan/meotime/data/local/PlatformDatabase.android.kt:20-22`
+- Modify: `shared/src/iosMain/kotlin/com/septaalfauzan/meotime/data/local/PlatformDatabase.ios.kt:18-21`
+- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/meotime/data/local/MeotimeDatabaseTest.kt`
 - Create (generated, commit it): `shared/schemas/…/2.json`
 
 **Interfaces:**
@@ -79,12 +79,12 @@ The schema is the floor everything else stands on: no later task compiles until 
 
 - [ ] **Step 1: Write the failing migration test**
 
-Append to `WanciDatabaseTest.kt`. The test builds a real v1 database with raw SQLite, then lets Room migrate it — this is the only thing standing between this change and a data wipe.
+Append to `MeotimeDatabaseTest.kt`. The test builds a real v1 database with raw SQLite, then lets Room migrate it — this is the only thing standing between this change and a data wipe.
 
 ```kotlin
     @Test
     fun migration_1_2_preservesMonitoredAppsAndConvertsUsageToSeconds() = runTest {
-        val directory = createTempDirectory(prefix = "wanci-v1").toFile()
+        val directory = createTempDirectory(prefix = "meotime-v1").toFile()
         val path = directory.resolve("v1.db").path
 
         // A v1 database, built the way Room built it. `room_master_table` is deliberately absent:
@@ -126,7 +126,7 @@ Append to `WanciDatabaseTest.kt`. The test builds a real v1 database with raw SQ
             close()
         }
 
-        val db = createWanciDatabase(nameOverride = path)
+        val db = createMeotimeDatabase(nameOverride = path)
         try {
             assertEquals(2_520L, db.dailyUsageDao().getUsageSeconds("com.instagram.android", "2026-09-25"))
             val app = db.monitoredAppDao().getByPackage("com.instagram.android")
@@ -139,11 +139,11 @@ Append to `WanciDatabaseTest.kt`. The test builds a real v1 database with raw SQ
     }
 ```
 
-Add these imports to `WanciDatabaseTest.kt` if absent: `kotlin.io.path.createTempDirectory`, `com.septaalfauzan.wanci.data.local.createWanciDatabase`, `kotlinx.coroutines.test.runTest`, `kotlinx.coroutines.test.runTest` is only needed because the assertions call `suspend` DAO reads — a plain `fun` will not compile.
+Add these imports to `MeotimeDatabaseTest.kt` if absent: `kotlin.io.path.createTempDirectory`, `com.septaalfauzan.meotime.data.local.createMeotimeDatabase`, `kotlinx.coroutines.test.runTest`, `kotlinx.coroutines.test.runTest` is only needed because the assertions call `suspend` DAO reads — a plain `fun` will not compile.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests '*WanciDatabaseTest*'`
+Run: `./gradlew :shared:testAndroidHostTest --tests '*MeotimeDatabaseTest*'`
 
 Expected: FAIL — `getUsageSeconds` does not exist (unresolved reference).
 
@@ -152,7 +152,7 @@ Expected: FAIL — `getUsageSeconds` does not exist (unresolved reference).
 `DailyUsageEntity.kt` — replace the whole file body:
 
 ```kotlin
-package com.septaalfauzan.wanci.data.local.entity
+package com.septaalfauzan.meotime.data.local.entity
 
 import androidx.room.Entity
 
@@ -177,13 +177,13 @@ data class DailyUsageEntity(
 `DailyUsageDao.kt` — replace the whole file. `raiseToAtLeast` is **renamed, not deleted**: it is renamed to `raiseToAtLeastSeconds` and stays for this unit. Its only caller is the reconcile, which survives until Task 4, and reconcile's contract is that it must never lower an existing total — which is only true if the raise is a single SQL statement. Dropping the method here and substituting a read-then-delta in Task 2 silently reintroduces a race with `recordUsageSeconds`, which runs on a different coroutine against the same row: a reconcile that reads `null` while a record inserts drops the platform's number, and one that reads 120 while a record adds 300 lands 900 instead of 420. Both are false over-limit reports. Task 4 deletes the method along with reconcile.
 
 ```kotlin
-package com.septaalfauzan.wanci.data.local
+package com.septaalfauzan.meotime.data.local
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import com.septaalfauzan.wanci.data.local.entity.DailyUsageEntity
+import com.septaalfauzan.meotime.data.local.entity.DailyUsageEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -218,10 +218,10 @@ The migration cannot live in `commonMain`, which is the whole shape of this step
 
 So the SQL lives in `commonMain` once, and each platform gets a three-line shell that hands it to its own `execSQL`. The statements are the part carrying the contract, so there must be exactly one copy of them; the alternative, duplicating the SQL per platform, is how a migration ends up migrating two different schemas.
 
-**`commonMain/…/WanciMigrations.kt`:**
+**`commonMain/…/MeotimeMigrations.kt`:**
 
 ```kotlin
-package com.septaalfauzan.wanci.data.local
+package com.septaalfauzan.meotime.data.local
 
 /**
  * v1 -> v2: `daily_usage.usageMinutes` became `usageSeconds`.
@@ -232,7 +232,7 @@ package com.septaalfauzan.wanci.data.local
  * alternative, a destructive migration, would cost them their monitored apps too, since they
  * live in another table this migration does not touch.
  *
- * Registered on both platforms in `createWanciDatabase`. An unregistered migration is not a
+ * Registered on both platforms in `createMeotimeDatabase`. An unregistered migration is not a
  * no-op: Room falls back to dropping every table.
  *
  * The statements, not the `Migration`, are what lives here: Room's `migrate` takes a
@@ -260,10 +260,10 @@ internal val MIGRATION_1_2_SQL: List<String> = listOf(
 )
 ```
 
-**`androidMain/…/WanciMigrations.android.kt`:**
+**`androidMain/…/MeotimeMigrations.android.kt`:**
 
 ```kotlin
-package com.septaalfauzan.wanci.data.local
+package com.septaalfauzan.meotime.data.local
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -275,10 +275,10 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 }
 ```
 
-**`iosMain/…/WanciMigrations.ios.kt`:**
+**`iosMain/…/MeotimeMigrations.ios.kt`:**
 
 ```kotlin
-package com.septaalfauzan.wanci.data.local
+package com.septaalfauzan.meotime.data.local
 
 import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
@@ -290,11 +290,11 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 }
 ```
 
-Both `MIGRATION_1_2` declarations are public and un-annotated because they are consumed from `commonMain`'s `expect fun createWanciDatabase`, which resolves per platform.
+Both `MIGRATION_1_2` declarations are public and un-annotated because they are consumed from `commonMain`'s `expect fun createMeotimeDatabase`, which resolves per platform.
 
 - [ ] **Step 5: Bump the version and turn on schema export**
 
-`WanciDatabase.kt` — change `version = 1` to `version = 2` and `exportSchema = false` to `exportSchema = true`. Add a KDoc line to the class explaining that `exportSchema` is what makes the next migration generatable:
+`MeotimeDatabase.kt` — change `version = 1` to `version = 2` and `exportSchema = false` to `exportSchema = true`. Add a KDoc line to the class explaining that `exportSchema` is what makes the next migration generatable:
 
 ```kotlin
 /**
@@ -304,7 +304,7 @@ Both `MIGRATION_1_2` declarations are public and un-annotated because they are c
  * generated from the recorded schema instead of written from memory — which is the only way to
  * catch a column that was renamed in the entity but not in the SQL.
  */
-@ConstructedBy(WanciDatabaseConstructor::class)
+@ConstructedBy(MeotimeDatabaseConstructor::class)
 @Database(
     entities = [
         MonitoredAppEntity::class,
@@ -318,24 +318,24 @@ Both `MIGRATION_1_2` declarations are public and un-annotated because they are c
 
 - [ ] **Step 6: Register the migration on both platforms**
 
-`PlatformDatabase.android.kt`, `createWanciDatabase`:
+`PlatformDatabase.android.kt`, `createMeotimeDatabase`:
 
 ```kotlin
-actual fun createWanciDatabase(nameOverride: String?): WanciDatabase {
-    val name = nameOverride ?: WanciDatabase.DB_NAME
-    return Room.databaseBuilder(AndroidAppContextHolder.context, WanciDatabase::class.java, name)
+actual fun createMeotimeDatabase(nameOverride: String?): MeotimeDatabase {
+    val name = nameOverride ?: MeotimeDatabase.DB_NAME
+    return Room.databaseBuilder(AndroidAppContextHolder.context, MeotimeDatabase::class.java, name)
         .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
         .addMigrations(MIGRATION_1_2)
         .build()
 }
 ```
 
-`PlatformDatabase.ios.kt`, `createWanciDatabase`:
+`PlatformDatabase.ios.kt`, `createMeotimeDatabase`:
 
 ```kotlin
-actual fun createWanciDatabase(nameOverride: String?): WanciDatabase {
-    val name = nameOverride ?: (NSHomeDirectory() + "/Documents/" + WanciDatabase.DB_NAME)
-    return Room.databaseBuilder<WanciDatabase>(name = name)
+actual fun createMeotimeDatabase(nameOverride: String?): MeotimeDatabase {
+    val name = nameOverride ?: (NSHomeDirectory() + "/Documents/" + MeotimeDatabase.DB_NAME)
+    return Room.databaseBuilder<MeotimeDatabase>(name = name)
         .setDriver(BundledSQLiteDriver())
         .addMigrations(MIGRATION_1_2)
         .build()
@@ -344,7 +344,7 @@ actual fun createWanciDatabase(nameOverride: String?): WanciDatabase {
 
 - [ ] **Step 7: Run the test to verify it passes**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests '*WanciDatabaseTest*'`
+Run: `./gradlew :shared:testAndroidHostTest --tests '*MeotimeDatabaseTest*'`
 
 Expected: PASS. `shared/schemas/` now exists on disk with a `2.json`.
 
@@ -357,12 +357,12 @@ This is the first third of the rename unit (see Global Constraints). `git add` n
 ### Task 2: Repository speaks seconds, with the monitoring call sites shimmed
 
 **Files:**
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepository.kt:4-21`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImpl.kt`
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt`
-- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImplTest.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt` — **call sites only**, lines 35, 61, 114
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt` — **call sites only**, lines 94, 115
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/repository/ScreenTimeRepository.kt:4-21`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/repository/ScreenTimeRepositoryImpl.kt`
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/FakeRepository.kt`
+- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/meotime/data/repository/ScreenTimeRepositoryImplTest.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt` — **call sites only**, lines 35, 61, 114
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt` — **call sites only**, lines 94, 115
 
 `MonitoringCore` and its test are in this task's file list for a narrow reason, explained in Step 6. Task 3 rewrites both files in full; this task only keeps them compiling.
 
@@ -491,7 +491,7 @@ The result is a commit in which stored data is in seconds, every existing behavi
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
-Run: `./gradlew :shared:testAndroidHostTest --tests '*ScreenTimeRepositoryImplTest*' --tests '*WanciDatabaseTest*'`
+Run: `./gradlew :shared:testAndroidHostTest --tests '*ScreenTimeRepositoryImplTest*' --tests '*MeotimeDatabaseTest*'`
 
 Expected: PASS. The domain-model rename lands in Task 6, so expect *compile* errors in `MonitoredApp.kt` and the presentation layer until then — those are expected and are not this task's to fix. If they block the test run, comment nothing out; just confirm the failures are all `todayUsageMinutes` / `observeTodayUsage` / `getTodayUsage` name errors and continue.
 
@@ -506,10 +506,10 @@ Second third of the rename unit. `git add` nothing. Continue to Task 6, which fi
 The core of the change. Everything before it was preparation; this is the behaviour the whole spec exists for.
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonotonicClock.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/LimitChecker.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCore.kt` (full rewrite)
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringCoreTest.kt` (full rewrite)
+- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonotonicClock.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/LimitChecker.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCore.kt` (full rewrite)
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringCoreTest.kt` (full rewrite)
 
 **Interfaces:**
 - Consumes: `getTodayUsageSeconds`, `recordUsageSeconds`, `getMonitoredApp` from Task 2; `FailRepository.failOnRecord` from Task 2.
@@ -527,12 +527,12 @@ The core of the change. Everything before it was preparation; this is the behavi
 Replace `MonitoringCoreTest.kt` in full. The clock is the test's, so every timing assertion is virtual and instant.
 
 ```kotlin
-package com.septaalfauzan.wanci
+package com.septaalfauzan.meotime
 
-import com.septaalfauzan.wanci.data.local.TodayKey
-import com.septaalfauzan.wanci.monitoring.LimitChecker
-import com.septaalfauzan.wanci.monitoring.MonitoringCore
-import com.septaalfauzan.wanci.monitoring.MonotonicClock
+import com.septaalfauzan.meotime.data.local.TodayKey
+import com.septaalfauzan.meotime.monitoring.LimitChecker
+import com.septaalfauzan.meotime.monitoring.MonitoringCore
+import com.septaalfauzan.meotime.monitoring.MonotonicClock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -557,7 +557,7 @@ private const val LAUNCHER = "launcher.pkg"
 class MonitoringCoreTest {
 
     private val today = FakeTodayKey("2026-09-25")
-    private val selfPkg = "com.septaalfauzan.wanci"
+    private val selfPkg = "com.septaalfauzan.meotime"
     private val decisions = mutableListOf<MonitoringCore.OverlayDecision>()
 
     /** 30 minutes, which at seconds precision is the boundary every test below is probing. */
@@ -733,8 +733,8 @@ class MonitoringCoreTest {
         advanceTimeBy(60_000L)
         core.onForegroundChange(selfPkg)
 
-        assertEquals(60L, repo.usage.value[INSTAGRAM], "leaving for Wanci is still leaving")
-        assertNull(repo.usage.value[selfPkg], "Wanci never counts itself")
+        assertEquals(60L, repo.usage.value[INSTAGRAM], "leaving for Meotime is still leaving")
+        assertNull(repo.usage.value[selfPkg], "Meotime never counts itself")
         assertNull(core.activeTick)
     }
 
@@ -839,7 +839,7 @@ Expected: FAIL — `MonotonicClock` does not exist.
 Create `MonotonicClock.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 /**
  * The only clock session arithmetic is allowed to read.
@@ -866,7 +866,7 @@ fun interface MonotonicClock {
 `LimitChecker.kt` in full:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 /**
  * The one definition of "over the limit", shared by the monitoring core and the dashboard so
@@ -885,10 +885,10 @@ object LimitChecker {
 Replace `MonitoringCore.kt` in full:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
-import com.septaalfauzan.wanci.data.local.TodayKey
-import com.septaalfauzan.wanci.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.data.local.TodayKey
+import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -898,7 +898,7 @@ import kotlinx.coroutines.launch
 /**
  * Decides when a restricted app has had enough. One app is in the foreground at a time, so this
  * holds exactly one **session** at a time: a contiguous foreground run, opened when a monitored,
- * enabled, non-Wanci package takes the foreground and closed when any other package does, or when
+ * enabled, non-Meotime package takes the foreground and closed when any other package does, or when
  * the screen turns off (which arrives as a null package). Repeated events for the same package —
  * an activity change, an in-app dialog, a permission prompt — are not switches and do not restart it.
  *
@@ -1084,14 +1084,14 @@ First third of the realtime unit. `git add` nothing. Note that `:shared:testAndr
 No tests are possible here — `androidApp/src` has only `main`. The gate is compilation plus the manual checks at the end.
 
 **Files:**
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/AppContainer.kt:34-45`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/WanciApplication.kt`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/MonitoringAccessibilityService.kt`
-- Delete: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/UsageStatsReader.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepository.kt` — delete `reconcileDailyUsage`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImpl.kt` — delete its body
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt` — delete its fake
-- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci/data/repository/ScreenTimeRepositoryImplTest.kt` — delete `reconcileDailyUsageNeverLowersAnExistingTotal`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/AppContainer.kt:34-45`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/MeotimeApplication.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/MonitoringAccessibilityService.kt`
+- Delete: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/UsageStatsReader.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/repository/ScreenTimeRepository.kt` — delete `reconcileDailyUsage`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/repository/ScreenTimeRepositoryImpl.kt` — delete its body
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/FakeRepository.kt` — delete its fake
+- Modify: `shared/src/androidHostTest/kotlin/com/septaalfauzan/meotime/data/repository/ScreenTimeRepositoryImplTest.kt` — delete `reconcileDailyUsageNeverLowersAnExistingTotal`
 
 `UsageStatsReader` is the only reason `reconcileDailyUsage` still exists: Task 2 kept it alive, in minutes, precisely so that `androidApp` would keep compiling. Deleting the reader and its one call is therefore a single act, and it belongs here rather than in Task 2 where the method was renamed out from under it.
 
@@ -1121,21 +1121,21 @@ No tests are possible here — `androidApp/src` has only `main`. The gate is com
         private set
 ```
 
-Add `import android.os.SystemClock` and `import com.septaalfauzan.wanci.monitoring.MonotonicClock`. Delete the `usageStatsReader` property and the `UsageStatsReader` import.
+Add `import android.os.SystemClock` and `import com.septaalfauzan.meotime.monitoring.MonotonicClock`. Delete the `usageStatsReader` property and the `UsageStatsReader` import.
 
 - [ ] **Step 2: Move the 7-day prune to application start**
 
-`WanciApplication.kt` in full:
+`MeotimeApplication.kt` in full:
 
 ```kotlin
-package com.septaalfauzan.wanci
+package com.septaalfauzan.meotime
 
 import android.app.Application
-import com.septaalfauzan.wanci.data.local.AndroidAppContextHolder
+import com.septaalfauzan.meotime.data.local.AndroidAppContextHolder
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 
-class WanciApplication : Application() {
+class MeotimeApplication : Application() {
     lateinit var container: AppContainer
 
     override fun onCreate() {
@@ -1159,7 +1159,7 @@ The prune lost its caller when reconcile was deleted, and the table would otherw
 `MonitoringAccessibilityService.kt` in full:
 
 ```kotlin
-package com.septaalfauzan.wanci.monitoring
+package com.septaalfauzan.meotime.monitoring
 
 import android.accessibilityservice.AccessibilityService
 import android.content.BroadcastReceiver
@@ -1167,8 +1167,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.view.accessibility.AccessibilityEvent
-import com.septaalfauzan.wanci.AppContainer
-import com.septaalfauzan.wanci.WanciApplication
+import com.septaalfauzan.meotime.AppContainer
+import com.septaalfauzan.meotime.MeotimeApplication
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
@@ -1201,7 +1201,7 @@ class MonitoringAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        val appContainer = (application as? WanciApplication)?.container ?: return
+        val appContainer = (application as? MeotimeApplication)?.container ?: return
         container = appContainer
         registerScreenReceiver()
         ready.set(true)
@@ -1256,7 +1256,7 @@ class MonitoringAccessibilityService : AccessibilityService() {
 }
 ```
 
-Delete `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/UsageStatsReader.kt` and the now-unused `SystemClock` import.
+Delete `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/UsageStatsReader.kt` and the now-unused `SystemClock` import.
 
 - [ ] **Step 4: Delete `reconcileDailyUsage` and its test**
 
@@ -1284,7 +1284,7 @@ Second third of the realtime unit. `git add` nothing. Continue to Task 5, which 
 ### Task 5: BACK on the overlay exits the app
 
 **Files:**
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/OverlayManager.kt`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/OverlayManager.kt`
 
 **Interfaces:**
 - Consumes: `MonitoringCore.OverlayDecision` from Task 3.
@@ -1349,7 +1349,7 @@ Delete the `core`, `coreMutex`, and `scope` properties, the `OverlayLifecycleOwn
 
 ```kotlin
     private companion object {
-        const val TAG = "WanciOverlay"
+        const val TAG = "MeotimeOverlay"
     }
 ```
 
@@ -1374,10 +1374,10 @@ Expected: BUILD SUCCESSFUL. Any error here is a leftover reference to the remove
 This is the single commit for Tasks 3, 4 and 5, and the first moment since Task 3 that `androidApp` can compile. Verify before committing: `./gradlew :shared:testAndroidHostTest` green and `./gradlew :androidApp:assembleDebug` succeeding. If either fails, the unit is not finished.
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/monitoring \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci/FakeRepository.kt \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring \
+        shared/src/commonTest/kotlin/com/septaalfauzan/meotime/monitoring \
+        shared/src/commonTest/kotlin/com/septaalfauzan/meotime/FakeRepository.kt \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime
 git commit -m "feat: track screen time live from a session start timestamp
 
 The old core polled Room every five seconds, which cannot change a day
@@ -1406,23 +1406,23 @@ OverlayManager is about to stop accepting."
 This is the task that ships a user-visible wrong number if it is done carelessly. `dashboardRow` divides usage by the limit, compares them, and subtracts them; leave the usage in seconds and the limit in minutes and all three are wrong by 60×, silently, with the row still rendering.
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/format/UsageFormat.kt`
-- Create: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/format/UsageFormatTest.kt`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain/model/MonitoredApp.kt:20`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain/useCase/WanciUseCases.kt:36-37`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/dashboard/DashboardViewModel.kt:61-77`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/dashboard/DashboardScreen.kt:154`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/appsettings/AppSettingsViewModel.kt:43,103,131-141,408,416`
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/appsettings/AppSettingsScreen.kt:188`
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/dashboard/DashboardViewModelTest.kt`
-- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/wanci/presentation/appsettings/AppSettingsViewModelTest.kt`
+- Create: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/format/UsageFormat.kt`
+- Create: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/format/UsageFormatTest.kt`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/domain/model/MonitoredApp.kt:20`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/domain/useCase/MeotimeUseCases.kt:36-37`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/dashboard/DashboardViewModel.kt:61-77`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/dashboard/DashboardScreen.kt:154`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/appsettings/AppSettingsViewModel.kt:43,103,131-141,408,416`
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/appsettings/AppSettingsScreen.kt:188`
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/dashboard/DashboardViewModelTest.kt`
+- Modify: `shared/src/commonTest/kotlin/com/septaalfauzan/meotime/presentation/appsettings/AppSettingsViewModelTest.kt`
 
 **Interfaces:**
 - Consumes: `observeTodayUsageSeconds` / `getTodayUsageSeconds` from Task 2.
 - Produces:
-  - `fun formatUsage(seconds: Long): String` in `com.septaalfauzan.wanci.presentation.format`
+  - `fun formatUsage(seconds: Long): String` in `com.septaalfauzan.meotime.presentation.format`
   - `MonitoredApp.todayUsageSeconds: Long` (replacing `todayUsageMinutes`)
-  - `WanciUseCases.getTodayUsageSeconds(packageName: String): Long`
+  - `MeotimeUseCases.getTodayUsageSeconds(packageName: String): Long`
   - `AppSettingsUiState.usageSeconds: Long` (replacing `usageMinutes`)
 
 - [ ] **Step 1: Write the failing formatter test**
@@ -1430,9 +1430,9 @@ This is the task that ships a user-visible wrong number if it is done carelessly
 Create `UsageFormatTest.kt`:
 
 ```kotlin
-package com.septaalfauzan.wanci
+package com.septaalfauzan.meotime
 
-import com.septaalfauzan.wanci.presentation.format.formatUsage
+import com.septaalfauzan.meotime.presentation.format.formatUsage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -1514,7 +1514,7 @@ Expected: FAIL — `formatUsage` and `todayUsageSeconds` do not exist.
 Create `UsageFormat.kt`. This is the existing `formatUsageMinutes` from `AppSettingsViewModel.kt:131`, moved and re-based on seconds. It keeps the app's word style on purpose — the abbreviated `"1h 04m"` form this spec first proposed would be the only place in the UI not speaking like its neighbours.
 
 ```kotlin
-package com.septaalfauzan.wanci.presentation.format
+package com.septaalfauzan.meotime.presentation.format
 
 /**
  * A recorded duration in the words a person would use.
@@ -1523,7 +1523,7 @@ package com.septaalfauzan.wanci.presentation.format
  * runs in another process's worth of context, over another app, with no view model in sight —
  * needs to print a number too.
  *
- * Deliberately *not* `com.septaalfauzan.wanci.presentation.limit.formatLimitMinutes`, which
+ * Deliberately *not* `com.septaalfauzan.meotime.presentation.limit.formatLimitMinutes`, which
  * clamps into `1..1440` because it formats a limit and 0 minutes is not a limit a user can
  * store. A usage reading has the opposite shape: 0 is the common case, and a day can overrun its
  * limit by more than 24 hours. So no clamp, and a negative reading is floored at zero rather
@@ -1551,7 +1551,7 @@ fun formatUsage(seconds: Long): String {
 
 `MonitoredApp.kt` line 20: `val todayUsageMinutes: Long = 0` → `val todayUsageSeconds: Long = 0`. Update the KDoc references to it in the same file.
 
-`WanciUseCases.kt`:
+`MeotimeUseCases.kt`:
 
 ```kotlin
     suspend fun getTodayUsageSeconds(packageName: String): Long =
@@ -1611,7 +1611,7 @@ The branch goes after `paused` and before the `== 1L` case, so a paused app stil
 `AppSettingsViewModel.kt` — four edits:
 - line 43: `val usageMinutes: Long = 0` → `val usageSeconds: Long = 0`
 - line 103: `dashboardRow(it.copy(todayUsageMinutes = usageMinutes))` → `dashboardRow(it.copy(todayUsageSeconds = usageSeconds))`
-- delete `formatUsageMinutes` (lines 122-141, KDoc included) and add `import com.septaalfauzan.wanci.presentation.format.formatUsage`
+- delete `formatUsageMinutes` (lines 122-141, KDoc included) and add `import com.septaalfauzan.meotime.presentation.format.formatUsage`
 - lines 408 and 416: `usageMinutes = 0` / `usageMinutes = usage` → `usageSeconds = …`
 
 `AppSettingsScreen.kt:188`: `formatUsageMinutes(state.usageMinutes)` → `formatUsage(state.usageSeconds)`, and swap the import. Line 189's `formatLimitMinutes(state.limitMinutes)` is correct as-is — the limit is still minutes.
@@ -1622,7 +1622,7 @@ The branch goes after `paused` and before the `== 1L` case, so a paused app stil
                     "${formatUsage(app.todayUsageSeconds)} / ${app.dailyLimitMinutes} min",
 ```
 
-Add `import com.septaalfauzan.wanci.presentation.format.formatUsage`.
+Add `import com.septaalfauzan.meotime.presentation.format.formatUsage`.
 
 - [ ] **Step 8: Update the existing test fixtures**
 
@@ -1660,15 +1660,15 @@ This is the single commit for Tasks 1, 2 and 6. The tree has not compiled since 
 
 ```bash
 git add shared/schemas \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/local \
-        shared/src/androidMain/kotlin/com/septaalfauzan/wanci/data/local \
-        shared/src/iosMain/kotlin/com/septaalfauzan/wanci/data/local \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/data/repository \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/domain \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/monitoring \
-        shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation \
-        shared/src/commonTest/kotlin/com/septaalfauzan/wanci \
-        shared/src/androidHostTest/kotlin/com/septaalfauzan/wanci
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/local \
+        shared/src/androidMain/kotlin/com/septaalfauzan/meotime/data/local \
+        shared/src/iosMain/kotlin/com/septaalfauzan/meotime/data/local \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/data/repository \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/domain \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/monitoring \
+        shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation \
+        shared/src/commonTest/kotlin/com/septaalfauzan/meotime \
+        shared/src/androidHostTest/kotlin/com/septaalfauzan/meotime
 git commit -m "refactor: move screen-time accounting to seconds end to end
 
 The stored unit changes from minutes to seconds so usage is recorded
@@ -1691,8 +1691,8 @@ Do not stage `task-13-report.md` or anything else that is not part of this unit.
 The last code change. The composable itself gets no automated test: `shared/build.gradle.kts:65-68` gives `commonTest` only `kotlin.test` and `kotlinx-coroutines-test`, there is no Compose UI test artifact in `gradle/libs.versions.toml`, and no composable in this project has ever been rendered in a test. Adding a test dependency to cover two static strings is not worth it, so the argument wiring is checked by hand in Task 8 instead. `formatUsage` — the part with actual logic — is covered by `UsageFormatTest` in Task 6.
 
 **Files:**
-- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/overlay/OverlayScreen.kt:21-46`
-- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/OverlayManager.kt` (the `setContent` block)
+- Modify: `shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/overlay/OverlayScreen.kt:21-46`
+- Modify: `androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/OverlayManager.kt` (the `setContent` block)
 
 **Interfaces:**
 - Consumes: `formatUsage` from Task 6, `MonitoringCore.OverlayDecision` from Task 3.
@@ -1722,7 +1722,7 @@ and replace lines 43-46:
         )
 ```
 
-Add `import com.septaalfauzan.wanci.presentation.format.formatUsage`. The number is deliberately not re-ticked while the overlay is up: the session is still accruing behind it, but a counter climbing under a dialog you are about to dismiss is noise, and the figure at the crossing is the one that explains why the overlay is there.
+Add `import com.septaalfauzan.meotime.presentation.format.formatUsage`. The number is deliberately not re-ticked while the overlay is up: the session is still accruing behind it, but a counter climbing under a dialog you are about to dismiss is noise, and the figure at the crossing is the one that explains why the overlay is there.
 
 - [ ] **Step 2: Update the call site**
 
@@ -1735,7 +1735,7 @@ Add `import com.septaalfauzan.wanci.presentation.format.formatUsage`. The number
                     usageSeconds = decision.usageSeconds,
                     limitSeconds = decision.limitSeconds,
                     onLeave = { leaveApp() },
-                    onManage = { openWanci(decision.packageName) },
+                    onManage = { openMeotime(decision.packageName) },
                 )
             }
 ```
@@ -1749,8 +1749,8 @@ Expected: PASS and BUILD SUCCESSFUL. Every suite is green for the first time sin
 - [ ] **Step 4: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/septaalfauzan/wanci/presentation/overlay \
-        androidApp/src/main/kotlin/com/septaalfauzan/wanci/monitoring/OverlayManager.kt
+git add shared/src/commonMain/kotlin/com/septaalfauzan/meotime/presentation/overlay \
+        androidApp/src/main/kotlin/com/septaalfauzan/meotime/monitoring/OverlayManager.kt
 git commit -m "feat: show formatted over-limit usage on the overlay"
 ```
 
@@ -1766,7 +1766,7 @@ Nothing here is automatable — `androidApp/src` has no instrumentation source s
 
 - [ ] **Step 1: Check whether the overlay window generates its own accessibility event**
 
-This is the one open question the design could not settle from the code. If the overlay window produces a `TYPE_WINDOW_STATE_CHANGED` attributed to Wanci's own package, feeding it back through `onForegroundChange("com.septaalfauzan.wanci")` closes the session and writes the time the instant the overlay appears.
+This is the one open question the design could not settle from the code. If the overlay window produces a `TYPE_WINDOW_STATE_CHANGED` attributed to Meotime's own package, feeding it back through `onForegroundChange("com.septaalfauzan.meotime")` closes the session and writes the time the instant the overlay appears.
 
 Procedure: enable the service, add a monitored app with a 1-minute limit, set `adb logcat` filtering on `MonitoringCore`, open the app, and cross the limit. Watch whether the session is written at the moment the overlay appears rather than when you leave.
 

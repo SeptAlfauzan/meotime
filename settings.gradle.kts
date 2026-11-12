@@ -1,4 +1,4 @@
-rootProject.name = "Wanci"
+rootProject.name = "Meotime"
 
 pluginManagement {
     repositories {

@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">Wanci</string>
+    <string name="app_name">Meotime</string>
     <string name="notification_channel_name">Screen-time monitoring</string>
 </resources>

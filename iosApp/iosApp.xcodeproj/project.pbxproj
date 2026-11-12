@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		DB026172582EF9DF8228B093 /* Wanci.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Wanci.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DB026172582EF9DF8228B093 /* Meotime.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Meotime.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -59,7 +59,7 @@
 		69010F459BADE0D7A8C64283 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DB026172582EF9DF8228B093 /* Wanci.app */,
+				DB026172582EF9DF8228B093 /* Meotime.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 			packageProductDependencies = (
 			);
 			productName = iosApp;
-			productReference = DB026172582EF9DF8228B093 /* Wanci.app */;
+			productReference = DB026172582EF9DF8228B093 /* Meotime.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
