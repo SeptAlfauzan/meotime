@@ -13,6 +13,7 @@ import com.septaalfauzan.meotime.domain.PermissionStatusProvider
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import com.septaalfauzan.meotime.monitoring.AndroidNotifier
 import com.septaalfauzan.meotime.monitoring.MonitoringCore
+import com.septaalfauzan.meotime.monitoring.SystemWallClock
 import com.septaalfauzan.meotime.monitoring.MonitoringForegroundService
 import com.septaalfauzan.meotime.monitoring.MonotonicClock
 import com.septaalfauzan.meotime.monitoring.NotificationController
@@ -45,6 +46,7 @@ class AppContainer(private val context: Context) {
     val repository = ScreenTimeRepositoryImpl(
         monitoredAppDao = database.monitoredAppDao(),
         dailyUsageDao = database.dailyUsageDao(),
+        hourlyUsageDao = database.hourlyUsageDao(),
         syncStateDao = database.syncStateDao(),
         todayKey = todayKey,
     )
@@ -86,6 +88,7 @@ class AppContainer(private val context: Context) {
         todayKey = todayKey,
         selfPackageName = context.packageName,
         clock = clock,
+        wallClock = SystemWallClock,
         scope = scope,
         // No extra launch hop: OverlayManager.show posts to the main thread itself, so wrapping
         // this in scope.launch would only add a queue between the decision and the screen. The

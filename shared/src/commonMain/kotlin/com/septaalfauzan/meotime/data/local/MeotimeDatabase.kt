@@ -4,6 +4,7 @@ import androidx.room.ConstructedBy
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.septaalfauzan.meotime.data.local.entity.DailyUsageEntity
+import com.septaalfauzan.meotime.data.local.entity.HourlyUsageEntity
 import com.septaalfauzan.meotime.data.local.entity.MonitoredAppEntity
 import com.septaalfauzan.meotime.data.local.entity.SyncStateEntity
 
@@ -19,14 +20,16 @@ import com.septaalfauzan.meotime.data.local.entity.SyncStateEntity
     entities = [
         MonitoredAppEntity::class,
         DailyUsageEntity::class,
+        HourlyUsageEntity::class,
         SyncStateEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class MeotimeDatabase : RoomDatabase() {
     abstract fun monitoredAppDao(): MonitoredAppDao
     abstract fun dailyUsageDao(): DailyUsageDao
+    abstract fun hourlyUsageDao(): HourlyUsageDao
     abstract fun syncStateDao(): SyncStateDao
 
     companion object {

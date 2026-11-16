@@ -6,6 +6,7 @@ import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.monitoring.MonitoringCore
 import com.septaalfauzan.meotime.monitoring.MonotonicClock
 import com.septaalfauzan.meotime.monitoring.SessionSnapshot
+import com.septaalfauzan.meotime.monitoring.WallClock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -142,7 +143,7 @@ class MonitoringCoreTest {
         core.onForegroundChange(LAUNCHER)
 
         assertEquals(30L, repo.usage.value[INSTAGRAM])
-        assertEquals(1, repo.recorded.size)
+        assertEquals(1, repo.sessions.size)
     }
 
     @Test
@@ -157,7 +158,7 @@ class MonitoringCoreTest {
         core.onForegroundChange(LAUNCHER)
 
         assertEquals(30L, repo.usage.value[INSTAGRAM], "the time before the dialog is still this session's")
-        assertEquals(1, repo.recorded.size, "one contiguous run is one write")
+        assertEquals(1, repo.sessions.size, "one contiguous run is one write")
     }
 
     @Test
@@ -213,7 +214,7 @@ class MonitoringCoreTest {
         advanceTimeBy(60_000L)
         core.onForegroundChange(null)
 
-        assertTrue(repo.recorded.isEmpty())
+        assertTrue(repo.sessions.isEmpty())
     }
 
     @Test
@@ -386,4 +387,30 @@ class MonitoringCoreTest {
         assertEquals(listOf(true, false), seen.map { it != null }, "zero elapsed is still a state change")
         assertTrue(repo.usage.value.isEmpty())
     }
+    @Test
+    fun sessionCloseRecordsTheWallClockSpanAlongsideTheMonotonicDelta() = runTest {
+        val repo = repository()
+        var wallNow = 1_700_000_000_000L
+        val core = MonitoringCore(
+            repository = repo,
+            todayKey = today,
+            selfPackageName = selfPkg,
+            clock = MonotonicClock { currentTime },
+            wallClock = WallClock { wallNow },
+            scope = this,
+            onOverlayDecision = { decisions += it },
+        ).apply { attach() }
+
+        core.onForegroundChange(INSTAGRAM)
+        advanceTimeBy(30_000L)
+        wallNow += 30_000L
+        core.onForegroundChange(LAUNCHER)
+
+        val session = repo.sessions.single()
+        assertEquals(INSTAGRAM, session.packageName)
+        assertEquals(30L, session.deltaSeconds)
+        assertEquals(1_700_000_000_000L, session.startedAtEpochMillis)
+        assertEquals(1_700_000_030_000L, session.endedAtEpochMillis)
+    }
+
 }

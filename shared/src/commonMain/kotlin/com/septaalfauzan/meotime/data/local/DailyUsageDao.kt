@@ -21,6 +21,9 @@ interface DailyUsageDao {
     @Query("SELECT * FROM daily_usage WHERE date = :date")
     fun observeForDate(date: String): Flow<List<DailyUsageEntity>>
 
+    @Query("SELECT * FROM daily_usage WHERE date BETWEEN :startDate AND :endDate ORDER BY date, packageName")
+    fun observeForRange(startDate: String, endDate: String): Flow<List<DailyUsageEntity>>
+
     @Query("DELETE FROM daily_usage WHERE date < :date")
     suspend fun deleteBefore(date: String)
 }

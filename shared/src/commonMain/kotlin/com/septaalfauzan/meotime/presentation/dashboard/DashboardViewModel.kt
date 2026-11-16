@@ -5,17 +5,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.septaalfauzan.meotime.domain.AppIconProvider
 import com.septaalfauzan.meotime.domain.InstalledAppCheck
+import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 
 /**
  * Dashboard state.
@@ -30,6 +38,11 @@ data class DashboardUiState(
     val appIcons: Map<String, ImageBitmap> = emptyMap(),
     val loading: Boolean = true,
     val error: Boolean = false,
+    val statsFilter: StatsFilter = StatsFilter.Today,
+    val stats: ScreenTimeStats? = null,
+    val statsLoading: Boolean = true,
+    val statsError: Boolean = false,
+    val today: LocalDate? = null,
 )
 
 /**
@@ -142,9 +155,17 @@ class DashboardViewModel(
     val state: StateFlow<DashboardUiState> = _state.asStateFlow()
 
     private var observeJob: Job? = null
+    private val statsBuilder = ScreenTimeStatsBuilder()
+    private var statsJob: Job? = null
 
     init {
         observe()
+        observeStats()
+        viewModelScope.launch {
+            useCases.observeToday().collect { date ->
+                _state.update { it.copy(today = date) }
+            }
+        }
     }
 
     /**
@@ -157,6 +178,80 @@ class DashboardViewModel(
      * the re-subscribed rows are already correct while the fresh query runs. The error flag is
      * always cleared, which is what makes the retry from the error state work.
      */
+    fun applyFilter(filter: StatsFilter) {
+        _state.update {
+            it.copy(
+                statsFilter = filter,
+                stats = null,
+                statsLoading = true,
+                statsError = false,
+            )
+        }
+        observeStats()
+    }
+
+    fun refreshStats() {
+        _state.update { it.copy(statsLoading = true, statsError = false) }
+        observeStats()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeStats() {
+        statsJob?.cancel()
+        val filter = _state.value.statsFilter
+        statsJob = viewModelScope.launch {
+            val periodFlow = when (filter) {
+                StatsFilter.Today -> useCases.observeToday().map { ResolvedPeriod(it, it) }
+                is StatsFilter.SingleDay -> flowOf(ResolvedPeriod(filter.date, filter.date))
+                is StatsFilter.DateRange -> flowOf(
+                    if (filter.start <= filter.end) {
+                        ResolvedPeriod(filter.start, filter.end)
+                    } else {
+                        ResolvedPeriod(filter.end, filter.start)
+                    },
+                )
+            }
+
+            periodFlow
+                .flatMapLatest { period ->
+                    val previous = previousPeriod(period)
+                    combine(
+                        useCases.observeMonitoredApps(),
+                        useCases.observeDailyUsage(period.start, period.end),
+                        useCases.observeDailyUsage(previous.start, previous.end),
+                        if (filter is StatsFilter.DateRange) {
+                            flowOf(emptyList<HourlyUsagePoint>())
+                        } else {
+                            useCases.observeHourlyUsage(period.start)
+                        },
+                    ) { apps, current, prior, hourly ->
+                        statsBuilder.build(
+                            filter = filter,
+                            today = period.start,
+                            apps = apps,
+                            current = current,
+                            previous = prior,
+                            hourly = hourly,
+                        )
+                    }
+                }
+                .catch {
+                    _state.update { it.copy(statsLoading = false, statsError = true) }
+                }
+                .collect { stats ->
+                    _state.update {
+                        it.copy(stats = stats, statsLoading = false, statsError = false)
+                    }
+                }
+        }
+    }
+
+    private fun previousPeriod(period: ResolvedPeriod): ResolvedPeriod {
+        val end = period.start.plus(-1, DateTimeUnit.DAY)
+        val start = period.start.plus(-period.days, DateTimeUnit.DAY)
+        return ResolvedPeriod(start, end)
+    }
+
     fun refresh() {
         val current = _state.value
         _state.value = current.copy(

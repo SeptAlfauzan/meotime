@@ -1,13 +1,18 @@
 package com.septaalfauzan.meotime.data.repository
 
 import com.septaalfauzan.meotime.data.local.DailyUsageDao
+import com.septaalfauzan.meotime.data.local.HourlyUsageDao
 import com.septaalfauzan.meotime.data.local.MonitoredAppDao
 import com.septaalfauzan.meotime.data.local.SyncStateDao
 import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.data.local.entity.DailyUsageEntity
 import com.septaalfauzan.meotime.data.local.entity.MonitoredAppEntity
 import com.septaalfauzan.meotime.data.local.entity.SyncStateEntity
+import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
+import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlin.time.Clock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -19,8 +24,10 @@ import kotlinx.coroutines.flow.map
 class ScreenTimeRepositoryImpl(
     private val monitoredAppDao: MonitoredAppDao,
     private val dailyUsageDao: DailyUsageDao,
+    private val hourlyUsageDao: HourlyUsageDao,
     private val syncStateDao: SyncStateDao,
     private val todayKey: TodayKey,
+    private val timeZone: TimeZone = TimeZone.currentSystemDefault(),
 ) : ScreenTimeRepository {
 
     override fun observeMonitoredApps(): Flow<List<MonitoredApp>> {
@@ -84,6 +91,52 @@ class ScreenTimeRepositoryImpl(
         }
     }
 
+    override suspend fun recordUsageSession(
+        packageName: String,
+        deltaSeconds: Long,
+        startedAtEpochMillis: Long,
+        endedAtEpochMillis: Long,
+    ) {
+        val buckets = splitSession(
+            deltaSeconds = deltaSeconds,
+            startedAtEpochMillis = startedAtEpochMillis,
+            endedAtEpochMillis = endedAtEpochMillis,
+            timeZone = timeZone,
+        )
+        if (buckets.isEmpty()) return
+        hourlyUsageDao.recordBuckets(
+            packageName = packageName,
+            buckets = buckets.map { HourlyUsageDao.Bucket(it.date.toString(), it.hour, it.seconds) },
+            updatedAt = Clock.System.now().toEpochMilliseconds(),
+        )
+    }
+
+    override fun observeDailyUsage(
+        startDate: LocalDate,
+        endDate: LocalDate,
+    ): Flow<List<DailyUsagePoint>> =
+        dailyUsageDao.observeForRange(startDate.toString(), endDate.toString()).map { rows ->
+            rows.map { row ->
+                DailyUsagePoint(
+                    packageName = row.packageName,
+                    date = LocalDate.parse(row.date),
+                    usageSeconds = row.usageSeconds,
+                )
+            }
+        }
+
+    override fun observeHourlyUsage(date: LocalDate): Flow<List<HourlyUsagePoint>> =
+        hourlyUsageDao.observeForDate(date.toString()).map { rows ->
+            rows.map { row ->
+                HourlyUsagePoint(
+                    packageName = row.packageName,
+                    date = date,
+                    hour = row.hour,
+                    usageSeconds = row.usageSeconds,
+                )
+            }
+        }
+
     override suspend fun getSyncValue(key: String): String? = syncStateDao.get(key)
 
     override suspend fun putSyncValue(key: String, value: String) {
@@ -94,7 +147,7 @@ class ScreenTimeRepositoryImpl(
         syncStateDao.observe(key).map { it?.value }
 
     override suspend fun deleteUsageBefore(date: String) {
-        dailyUsageDao.deleteBefore(date)
+        hourlyUsageDao.deleteBefore(date)
     }
 
     private fun MonitoredAppEntity.toDomain(todayUsageSeconds: Long) =

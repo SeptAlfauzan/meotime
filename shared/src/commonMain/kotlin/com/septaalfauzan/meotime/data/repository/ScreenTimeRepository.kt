@@ -1,7 +1,10 @@
 package com.septaalfauzan.meotime.data.repository
 
+import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
+import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import kotlinx.coroutines.flow.Flow
+import kotlinx.datetime.LocalDate
 
 interface ScreenTimeRepository {
     fun observeMonitoredApps(): Flow<List<MonitoredApp>>
@@ -13,6 +16,14 @@ interface ScreenTimeRepository {
     suspend fun setMonitoringEnabled(packageName: String, enabled: Boolean)
     suspend fun removeMonitoredApp(packageName: String)
     suspend fun recordUsageSeconds(packageName: String, deltaSeconds: Long, date: String)
+    suspend fun recordUsageSession(
+        packageName: String,
+        deltaSeconds: Long,
+        startedAtEpochMillis: Long,
+        endedAtEpochMillis: Long,
+    )
+    fun observeDailyUsage(startDate: LocalDate, endDate: LocalDate): Flow<List<DailyUsagePoint>>
+    fun observeHourlyUsage(date: LocalDate): Flow<List<HourlyUsagePoint>>
     suspend fun getSyncValue(key: String): String?
     suspend fun putSyncValue(key: String, value: String)
     fun observeSyncValue(key: String): Flow<String?>

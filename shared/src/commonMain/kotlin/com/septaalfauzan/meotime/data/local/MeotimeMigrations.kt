@@ -37,3 +37,24 @@ internal val MIGRATION_1_2_SQL: List<String> = listOf(
     "DROP TABLE `daily_usage`",
     "ALTER TABLE `daily_usage_new` RENAME TO `daily_usage`",
 )
+
+/**
+ * v2 -> v3: add hourly buckets. Existing daily totals are untouched because they remain the
+ * authoritative source for limits and for days recorded before hourly history existed.
+ */
+internal val MIGRATION_2_3_SQL: List<String> = listOf(
+    """
+    CREATE TABLE IF NOT EXISTS `hourly_usage` (
+      `packageName` TEXT NOT NULL,
+      `date` TEXT NOT NULL,
+      `hour` INTEGER NOT NULL,
+      `usageSeconds` INTEGER NOT NULL,
+      `updatedAt` INTEGER NOT NULL,
+      PRIMARY KEY(`packageName`, `date`, `hour`)
+    )
+    """.trimIndent(),
+    """
+    CREATE INDEX IF NOT EXISTS `index_hourly_usage_date`
+      ON `hourly_usage` (`date`)
+    """.trimIndent(),
+)

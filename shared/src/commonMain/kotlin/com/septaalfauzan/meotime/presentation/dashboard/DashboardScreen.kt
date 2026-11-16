@@ -5,11 +5,13 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,9 +30,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -38,7 +47,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.presentation.format.formatPeriodButton
+import com.septaalfauzan.meotime.presentation.format.formatPeriodSubtitle
+import com.septaalfauzan.meotime.presentation.format.formatStatDuration
 import com.septaalfauzan.meotime.presentation.format.formatUsage
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
@@ -68,14 +81,42 @@ fun DashboardScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val spacing = MeotimeTokens.spacing
+    val anchor = state.today ?: state.stats?.period?.start
+    var showPicker by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(spacing.screen),
     ) {
-        Text("Meotime", style = MaterialTheme.typography.titleLarge)
-        Text("Today", style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Meotime",
+                    style = MaterialTheme.typography.headlineMedium.copy(fontSize = 34.sp),
+                )
+                Text(
+                    anchor?.let { formatPeriodSubtitle(state.statsFilter, it) } ?: "",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            DatePill(
+                label = anchor?.let { formatPeriodButton(state.statsFilter, it) } ?: "Dates",
+                enabled = anchor != null,
+                onClick = {
+                    if (anchor != null) showPicker = true
+                },
+            )
+        }
+        Spacer(Modifier.height(spacing.md))
+
+        ScreenTimeStatsCard(
+            stats = state.stats,
+            loading = state.statsLoading,
+            error = state.statsError,
+            today = anchor,
+            onRetry = viewModel::refreshStats,
+        )
         Spacer(Modifier.height(spacing.md))
 
         when {
@@ -85,12 +126,13 @@ fun DashboardScreen(
             else -> MonitoredAppList(
                 apps = state.apps,
                 icons = state.appIcons,
+                statsFilter = state.statsFilter,
+                appUsage = state.stats?.appUsage.orEmpty(),
                 onOpenApp = onOpenApp,
                 modifier = Modifier.weight(1f),
             )
         }
 
-        // The zero state carries its own call to action; this is the one for a populated list.
         if (!state.loading && !state.error && state.apps.isNotEmpty()) {
             Spacer(Modifier.height(spacing.md))
             MeotimeButton(onClick = onAddApp, modifier = Modifier.fillMaxWidth()) {
@@ -98,12 +140,73 @@ fun DashboardScreen(
             }
         }
     }
+
+    if (showPicker && anchor != null) {
+        DateRangePickerSheet(
+            initialFilter = state.statsFilter,
+            today = anchor,
+            onDismissRequest = { showPicker = false },
+            onApply = { filter ->
+                showPicker = false
+                viewModel.applyFilter(filter)
+            },
+        )
+    }
+}
+
+@Composable
+private fun DatePill(label: String, enabled: Boolean, onClick: () -> Unit) {
+    MeotimeOutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        CalendarGlyph()
+        Spacer(Modifier.width(MeotimeTokens.spacing.xs))
+        Text(label, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+@Composable
+private fun CalendarGlyph() {
+    val color = MaterialTheme.colorScheme.onSurface
+    Canvas(Modifier.size(14.dp)) {
+        val stroke = 1.5.dp.toPx()
+        val radius = CornerRadius(2.dp.toPx())
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(0f, size.height * 0.1f),
+            size = Size(size.width, size.height * 0.9f),
+            cornerRadius = radius,
+            style = Stroke(stroke),
+        )
+        drawLine(
+            color = color,
+            start = Offset(0f, size.height * 0.35f),
+            end = Offset(size.width, size.height * 0.35f),
+            strokeWidth = stroke,
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.3f, 0f),
+            end = Offset(size.width * 0.3f, size.height * 0.22f),
+            strokeWidth = stroke,
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.7f, 0f),
+            end = Offset(size.width * 0.7f, size.height * 0.22f),
+            strokeWidth = stroke,
+        )
+    }
 }
 
 @Composable
 private fun MonitoredAppList(
     apps: List<MonitoredApp>,
-    icons: Map<String, androidx.compose.ui.graphics.ImageBitmap>,
+    icons: Map<String, ImageBitmap>,
+    statsFilter: StatsFilter,
+    appUsage: Map<String, AppUsageSummary>,
     onOpenApp: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -112,7 +215,13 @@ private fun MonitoredAppList(
         verticalArrangement = Arrangement.spacedBy(MeotimeTokens.spacing.sm),
     ) {
         items(apps, key = { it.packageName }) { app ->
-            MonitoredAppRow(app = app, appIcon = icons[app.packageName], onClick = { onOpenApp(app.packageName) })
+            MonitoredAppRow(
+                app = app,
+                appIcon = icons[app.packageName],
+                statsFilter = statsFilter,
+                usage = appUsage[app.packageName],
+                onClick = { onOpenApp(app.packageName) },
+            )
         }
     }
 }
@@ -129,10 +238,17 @@ private fun MonitoredAppList(
  * settings screen so the two can never describe the same row differently.
  */
 @Composable
-private fun MonitoredAppRow(app: MonitoredApp, appIcon: ImageBitmap?, onClick: () -> Unit) {
+private fun MonitoredAppRow(
+    app: MonitoredApp,
+    appIcon: ImageBitmap?,
+    statsFilter: StatsFilter,
+    usage: AppUsageSummary?,
+    onClick: () -> Unit,
+) {
     val row = dashboardRow(app)
+    val range = statsFilter is StatsFilter.DateRange
+    val rangeRow = if (range) dashboardRangeRow(app, usage) else null
     val spacing = MeotimeTokens.spacing
-    val status = appStatusLabel(row)
 
     Surface(
         onClick = onClick,
@@ -148,12 +264,8 @@ private fun MonitoredAppRow(app: MonitoredApp, appIcon: ImageBitmap?, onClick: (
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (appIcon != null) {
-                    // Decorative: the app name is the text right beside this, so a label here would make a screen
-                    // reader announce the row twice. What it must never be is a debug string — a literal
-                    // "app_icon_com.foo" is not a description, it is the variable name.
                     Image(appIcon, contentDescription = null, modifier = Modifier.size(24.dp))
                 } else {
-                    // Same footprint either way, so a row does not shift sideways once its icon finishes decoding.
                     Spacer(Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(spacing.sm))
@@ -168,25 +280,29 @@ private fun MonitoredAppRow(app: MonitoredApp, appIcon: ImageBitmap?, onClick: (
                     }
                 }
                 Text(
-                    "${formatUsage(app.todayUsageSeconds)} / ${app.dailyLimitMinutes} min",
+                    if (range) {
+                        "${formatStatDuration(usage?.totalSeconds ?: 0L)} total"
+                    } else {
+                        "${formatUsage(app.todayUsageSeconds)} / ${app.dailyLimitMinutes} min"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             LinearProgressIndicator(
-                progress = { row.progress },
+                progress = { rangeRow?.progress ?: row.progress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .clearAndSetSemantics { },
             )
             Text(
-                status,
-                style = if (row.limitReached) {
+                rangeRow?.status ?: appStatusLabel(row),
+                style = if (!range && row.limitReached) {
                     MaterialTheme.typography.labelLarge
                 } else {
                     MaterialTheme.typography.bodySmall
                 },
-                color = if (row.limitReached) {
+                color = if (!range && row.limitReached) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -290,4 +406,24 @@ private fun DashboardError(onRetry: () -> Unit) {
             Text("Try again")
         }
     }
+}
+
+internal data class DashboardRangeRow(
+    val progress: Float,
+    val status: String,
+)
+
+internal fun dashboardRangeRow(app: MonitoredApp, usage: AppUsageSummary?): DashboardRangeRow {
+    val average = usage?.dailyAverageSeconds ?: 0L
+    val limitSeconds = app.dailyLimitMinutes * 60L
+    val progress = when {
+        !app.enabled -> 0f
+        limitSeconds <= 0L -> 1f
+        else -> (average.toFloat() / limitSeconds.toFloat()).coerceIn(0f, 1f)
+    }
+    val copy = "${formatStatDuration(average)} per day on average · limit ${app.dailyLimitMinutes} min"
+    return DashboardRangeRow(
+        progress = progress,
+        status = if (app.enabled) copy else "Monitoring paused · $copy",
+    )
 }

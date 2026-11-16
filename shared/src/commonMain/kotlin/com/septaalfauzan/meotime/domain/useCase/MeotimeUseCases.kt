@@ -2,15 +2,21 @@ package com.septaalfauzan.meotime.domain.useCase
 
 import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
+import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.datetime.LocalDate
 
 class MeotimeUseCases(
     private val repository: ScreenTimeRepository,
     private val todayKey: TodayKey,
 ) {
     fun observeMonitoredApps(): Flow<List<MonitoredApp>> = repository.observeMonitoredApps()
+
+    fun observeToday(): Flow<LocalDate> =
+        todayKey.dateFlow().map { LocalDate.parse(it) }
 
     fun observeOnboardingComplete(): Flow<Boolean> =
         repository.observeSyncValue("onboardingComplete").map { it == "true" }
@@ -35,6 +41,12 @@ class MeotimeUseCases(
 
     suspend fun getTodayUsageSeconds(packageName: String): Long =
         repository.getTodayUsageSeconds(packageName, todayKey.todayIso())
+
+    fun observeDailyUsage(startDate: LocalDate, endDate: LocalDate): Flow<List<DailyUsagePoint>> =
+        repository.observeDailyUsage(startDate, endDate)
+
+    fun observeHourlyUsage(date: LocalDate): Flow<List<HourlyUsagePoint>> =
+        repository.observeHourlyUsage(date)
 
     suspend fun putSyncValue(key: String, value: String) =
         repository.putSyncValue(key, value)

@@ -7,9 +7,11 @@ import androidx.compose.ui.graphics.ImageBitmapConfig
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import com.septaalfauzan.meotime.FakeRepository
 import com.septaalfauzan.meotime.FakeTodayKey
+import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
 import com.septaalfauzan.meotime.domain.AppIconProvider
 import com.septaalfauzan.meotime.domain.InstalledAppCheck
+import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +25,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.LocalDate
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -120,9 +123,10 @@ class DashboardViewModelTest {
 private fun newViewModel(
         repository: ScreenTimeRepository = this.repository,
         iconProvider: AppIconProvider = AppIconProvider { null },
+        todayKey: TodayKey = today,
         installed: (String) -> Boolean = { true },
     ) = DashboardViewModel(
-        useCases = MeotimeUseCases(repository, today),
+        useCases = MeotimeUseCases(repository, todayKey),
         appIconProvider = iconProvider,
         installedAppCheck = InstalledAppCheck { installed(it) },
     )
@@ -419,6 +423,55 @@ private fun newViewModel(
  * the list and leave the dashboard empty behind an error. One bad icon costs one icon.
  */
 @Test
+fun buildsStatsForTheAppliedRangeFilter() = runTest {
+    val start = LocalDate(2026, 11, 1)
+    val end = LocalDate(2026, 11, 2)
+    repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+    repository.dailyUsage.value = mapOf(
+        start to mapOf("com.instagram.android" to 100L),
+        end to mapOf("com.instagram.android" to 200L),
+    )
+    val viewModel = newViewModel()
+
+    viewModel.applyFilter(StatsFilter.DateRange(start, end))
+
+    val state = viewModel.state.value
+    assertEquals(StatsFilter.DateRange(start, end), state.statsFilter)
+    assertEquals(300L, state.stats?.totalSeconds)
+    assertEquals(150L, state.stats?.primarySeconds)
+    assertFalse(state.statsLoading)
+    assertFalse(state.statsError)
+}
+
+@Test
+fun statsFailureDoesNotTakeDownTheAppList() = runTest {
+    repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+    val viewModel = newViewModel(FailingStatsRepository(repository))
+
+    val state = viewModel.state.value
+    assertEquals(1, state.apps.size)
+    assertTrue(state.statsError)
+    assertFalse(state.statsLoading)
+}
+
+@Test
+fun todayFilterFollowsMidnightRollover() = runTest {
+    val todayKey = MutableTodayKey("2026-11-05")
+    repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
+    repository.dailyUsage.value = mapOf(
+        LocalDate(2026, 11, 5) to mapOf("com.instagram.android" to 100L),
+    )
+    val viewModel = newViewModel(todayKey = todayKey)
+
+    assertEquals(100L, viewModel.state.value.stats?.totalSeconds)
+
+    todayKey.date.value = "2026-11-06"
+
+    assertEquals(0L, viewModel.state.value.stats?.totalSeconds)
+    assertEquals(LocalDate(2026, 11, 6), viewModel.state.value.today)
+}
+
+@Test
 fun oneUnrasterisableIconDoesNotRemoveTheOtherRows() = runTest {
     repository.addMonitoredApp("com.instagram.android", "Instagram", 30)
     repository.addMonitoredApp("com.example.boom", "Boom", 30)
@@ -459,4 +512,15 @@ private fun app(usageMinutes: Long, limitMinutes: Int, enabled: Boolean = true) 
         updatedAt = 0,
         todayUsageSeconds = usageSeconds,
     )
+}
+
+private class MutableTodayKey(initial: String) : TodayKey {
+    val date = MutableStateFlow(initial)
+    override fun todayIso(): String = date.value
+    override fun dateFlow(): Flow<String> = date
+}
+
+private class FailingStatsRepository(delegate: ScreenTimeRepository) : ScreenTimeRepository by delegate {
+    override fun observeDailyUsage(startDate: LocalDate, endDate: LocalDate): Flow<List<DailyUsagePoint>> =
+        flow { throw IllegalStateException("stats unavailable") }
 }

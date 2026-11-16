@@ -49,6 +49,7 @@ class MonitoringCore(
     private val todayKey: TodayKey,
     private val selfPackageName: String,
     private val clock: MonotonicClock,
+    private val wallClock: WallClock = SystemWallClock,
     private val scope: CoroutineScope,
     private val onOverlayDecision: (OverlayDecision) -> Unit,
     /**
@@ -73,6 +74,7 @@ class MonitoringCore(
         val packageName: String,
         val appName: String,
         val startedAtMillis: Long,
+        val startedAtEpochMillis: Long,
         val storedSeconds: Long,
         val limitSeconds: Long,
         var overlayShown: Boolean,
@@ -158,7 +160,12 @@ class MonitoringCore(
         val elapsed = (now - session.startedAtMillis) / 1000
         if (elapsed <= 0L) return
         try {
-            repository.recordUsageSeconds(session.packageName, elapsed, todayKey.todayIso())
+            repository.recordUsageSession(
+                packageName = session.packageName,
+                deltaSeconds = elapsed,
+                startedAtEpochMillis = session.startedAtEpochMillis,
+                endedAtEpochMillis = wallClock.nowEpochMillis(),
+            )
         } catch (_: Exception) {
             // The session is closed and the state is consistent, so a failed write costs the
             // seconds it carried and nothing else. Letting it escape would abort before the next
@@ -175,6 +182,7 @@ class MonitoringCore(
             packageName = packageName,
             appName = app.appName,
             startedAtMillis = now,
+            startedAtEpochMillis = wallClock.nowEpochMillis(),
             storedSeconds = repository.getTodayUsageSeconds(packageName, todayKey.todayIso()),
             // The one place the limit's authoring unit becomes an arithmetic unit.
             limitSeconds = app.dailyLimitMinutes * 60L,

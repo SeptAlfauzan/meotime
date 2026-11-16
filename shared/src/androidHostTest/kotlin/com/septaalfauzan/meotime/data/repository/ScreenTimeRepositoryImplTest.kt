@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlin.time.Instant
 import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -30,13 +33,18 @@ class ScreenTimeRepositoryImplTest {
         AndroidAppContextHolder.context = ApplicationProvider.getApplicationContext<Context>()
     }
 
-    private suspend fun newRepo(todayKey: TodayKey = today) = run {
+    private suspend fun newRepo(
+        todayKey: TodayKey = today,
+        timeZone: TimeZone = TimeZone.UTC,
+    ) = run {
         val db = buildTestDatabase("repo")
         val repo = ScreenTimeRepositoryImpl(
             monitoredAppDao = db.monitoredAppDao(),
             dailyUsageDao = db.dailyUsageDao(),
+            hourlyUsageDao = db.hourlyUsageDao(),
             syncStateDao = db.syncStateDao(),
             todayKey = todayKey,
+            timeZone = timeZone,
         )
         repo to db
     }
@@ -135,6 +143,67 @@ class ScreenTimeRepositoryImplTest {
             assertEquals(0L, emissions.receive().first().todayUsageSeconds)
         } finally {
             collection.cancel()
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun recordUsageSessionSplitsAcrossHoursAndDates() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.recordUsageSession(
+                packageName = "com.instagram.android",
+                deltaSeconds = 20L,
+                startedAtEpochMillis = Instant.parse("2026-11-05T23:59:50Z").toEpochMilliseconds(),
+                endedAtEpochMillis = Instant.parse("2026-11-06T00:00:10Z").toEpochMilliseconds(),
+            )
+
+            assertEquals(10L, repo.getTodayUsageSeconds("com.instagram.android", "2026-11-05"))
+            assertEquals(10L, repo.getTodayUsageSeconds("com.instagram.android", "2026-11-06"))
+            assertEquals(
+                listOf(10L),
+                db.hourlyUsageDao().observeForDate("2026-11-05").first().map { it.usageSeconds },
+            )
+            assertEquals(
+                listOf(10L),
+                db.hourlyUsageDao().observeForDate("2026-11-06").first().map { it.usageSeconds },
+            )
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun recordUsageSessionIgnoresNonPositiveDelta() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.recordUsageSession(
+                packageName = "com.instagram.android",
+                deltaSeconds = 0L,
+                startedAtEpochMillis = Instant.parse("2026-11-05T10:00:00Z").toEpochMilliseconds(),
+                endedAtEpochMillis = Instant.parse("2026-11-05T10:10:00Z").toEpochMilliseconds(),
+            )
+
+            assertTrue(db.hourlyUsageDao().observeForDate("2026-11-05").first().isEmpty())
+            assertEquals(null, db.dailyUsageDao().getUsageSeconds("com.instagram.android", "2026-11-05"))
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun observeDailyUsageReadsTheRequestedRange() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.recordUsageSeconds("com.instagram.android", 1L, "2026-11-03")
+            repo.recordUsageSeconds("com.instagram.android", 2L, "2026-11-04")
+            repo.recordUsageSeconds("com.instagram.android", 3L, "2026-11-05")
+            repo.recordUsageSeconds("com.instagram.android", 4L, "2026-11-06")
+
+            val rows = repo.observeDailyUsage(LocalDate(2026, 11, 4), LocalDate(2026, 11, 5)).first()
+
+            assertEquals(listOf(2L, 3L), rows.map { it.usageSeconds })
+        } finally {
             db.closeAndDelete()
         }
     }

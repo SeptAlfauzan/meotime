@@ -61,6 +61,7 @@ kotlin {
             implementation(libs.androidx.sqlite.bundled)
             implementation(libs.jetbrains.navigation.compose)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.datetime)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

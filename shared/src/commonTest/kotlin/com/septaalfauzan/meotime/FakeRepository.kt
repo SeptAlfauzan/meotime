@@ -1,7 +1,10 @@
 package com.septaalfauzan.meotime
 
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
+import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import kotlinx.datetime.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -19,10 +22,20 @@ import kotlinx.coroutines.flow.update
  * `todayUsageSeconds` was always the default `0`, so any test of a usage-reading screen would
  * have been asserting against a fake that could never produce usage.
  */
+data class RecordedSession(
+    val packageName: String,
+    val deltaSeconds: Long,
+    val startedAtEpochMillis: Long,
+    val endedAtEpochMillis: Long,
+)
+
 class FakeRepository : ScreenTimeRepository {
     val apps = MutableStateFlow<List<MonitoredApp>>(emptyList())
     val usage = MutableStateFlow<Map<String, Long>>(emptyMap())
     val recorded = mutableListOf<Triple<String, Long, String>>()
+    val sessions = mutableListOf<RecordedSession>()
+    val dailyUsage = MutableStateFlow<Map<LocalDate, Map<String, Long>>>(emptyMap())
+    val hourlyUsage = MutableStateFlow<Map<LocalDate, Map<Int, Map<String, Long>>>>(emptyMap())
     var syncValues = mutableMapOf<String, String>()
 
     private fun app(packageName: String): MonitoredApp? = apps.value.find { it.packageName == packageName }
@@ -119,6 +132,39 @@ class FakeRepository : ScreenTimeRepository {
         if (failOnRecord) throw IllegalStateException("simulated Room failure")
         recorded += Triple(packageName, deltaSeconds, date)
         usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaSeconds)) }
+        dailyUsage.update { byDate ->
+            val parsed = LocalDate.parse(date)
+            val byPackage = byDate[parsed].orEmpty()
+            byDate + (parsed to (byPackage + (packageName to ((byPackage[packageName] ?: 0L) + deltaSeconds))))
+        }
+    }
+
+    override suspend fun recordUsageSession(
+        packageName: String,
+        deltaSeconds: Long,
+        startedAtEpochMillis: Long,
+        endedAtEpochMillis: Long,
+    ) {
+        if (failOnRecord) throw IllegalStateException("simulated Room failure")
+        sessions += RecordedSession(packageName, deltaSeconds, startedAtEpochMillis, endedAtEpochMillis)
+        usage.update { it + (packageName to ((it[packageName] ?: 0L) + deltaSeconds)) }
+    }
+
+    override fun observeDailyUsage(
+        startDate: LocalDate,
+        endDate: LocalDate,
+    ): Flow<List<DailyUsagePoint>> = dailyUsage.map { byDate ->
+        byDate
+            .filterKeys { it >= startDate && it <= endDate }
+            .flatMap { (date, byPackage) ->
+                byPackage.map { (packageName, seconds) -> DailyUsagePoint(packageName, date, seconds) }
+            }
+    }
+
+    override fun observeHourlyUsage(date: LocalDate): Flow<List<HourlyUsagePoint>> = hourlyUsage.map { byDate ->
+        byDate[date].orEmpty().flatMap { (hour, byPackage) ->
+            byPackage.map { (packageName, seconds) -> HourlyUsagePoint(packageName, date, hour, seconds) }
+        }
     }
 
     override suspend fun getSyncValue(key: String): String? = syncValues[key]
