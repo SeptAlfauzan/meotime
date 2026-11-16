@@ -120,8 +120,11 @@ class ScreenTimeRepositoryImplTest {
     /**
      * The dashboard's own read path across midnight. `observeTodayUsageSwitchesDate` covers the
      * per-package flow, which nothing on the dashboard collects; this collects
-     * [ScreenTimeRepository.observeMonitoredApps] once and asserts the *second* emission, so the
-     * `dateFlow` seam is exercised with the `combine` and the per-app join still in place.
+     * [ScreenTimeRepository.observeMonitoredApps] once and asserts the value *after* the rollover,
+     * so the `dateFlow` seam is exercised with the `combine` and the per-app join still in place.
+     *
+     * The app list and the usage row land on the flow separately, so the assertions wait for the
+     * value they expect rather than assuming a particular emission order.
      */
     @Test
     fun observeMonitoredAppsSwitchesDateOnRollover() = runTest {
@@ -136,11 +139,11 @@ class ScreenTimeRepositoryImplTest {
             repo.addMonitoredApp(packageName, "Instagram", 30)
             repo.recordUsageSeconds(packageName, 42L, "2026-09-25")
 
-            assertEquals(42L, emissions.receive().first().todayUsageSeconds)
+            assertEquals(42L, awaitTodayUsage(emissions, expected = 42L))
 
             todayKey.date.value = "2026-09-26"
 
-            assertEquals(0L, emissions.receive().first().todayUsageSeconds)
+            assertEquals(0L, awaitTodayUsage(emissions, expected = 0L))
         } finally {
             collection.cancel()
             db.closeAndDelete()
@@ -235,4 +238,19 @@ private class MutableTodayKey(initialDate: String) : TodayKey {
     override fun todayIso(): String = date.value
 
     override fun dateFlow(): Flow<String> = date
+}
+
+/**
+ * Waits for the emission that carries [expected] today-usage, skipping the intermediate ones Room
+ * produces as the app list and the usage row land separately. `observeMonitoredApps` re-emits on
+ * every upstream change, so a caller must not assume a particular emission order.
+ */
+private suspend fun awaitTodayUsage(
+    emissions: Channel<List<MonitoredApp>>,
+    expected: Long,
+): Long {
+    while (true) {
+        val row = emissions.receive().firstOrNull() ?: continue
+        if (row.todayUsageSeconds == expected) return row.todayUsageSeconds
+    }
 }
