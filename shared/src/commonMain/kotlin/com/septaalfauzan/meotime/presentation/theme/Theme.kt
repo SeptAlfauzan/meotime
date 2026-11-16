@@ -1,20 +1,22 @@
 /**
- * Meotime design system — monochrome, border-based, no gradients and no shadows.
+ * Meotime design system — warm break-time palette, border-based, no gradients and no shadows.
  *
  * Everything a screen needs is centralised here: color, type, shape, spacing and
  * control sizing. Screens read tokens from [androidx.compose.material3.MaterialTheme],
  * [MeotimeTokens.spacing] and [MeotimeTokens.controls] instead of hard-coding dp values or
  * picking colours.
  *
- * The palette is intentionally achromatic (warm neutrals only) per the approved design
- * spec. **All 48 [androidx.compose.material3.ColorScheme] roles are authored explicitly in
- * both [MonochromeLight] and [MonochromeDark]** — an omitted role silently falls back to
- * Material3's default purple ramp, which would put a hue into a monochrome app the first
- * time a screen touched it. Every text/surface pair below is verified at >= 4.5:1 contrast
- * and the hairline border at >= 3:1 against `surface`/`background` (where a bordered control
- * actually sits); against the deepest container fills `outlineVariant` measures 2.65–2.80:1,
- * so a border is never the sole carrier of meaning. See `task-8-report.md` for the measured
- * ratios and the exact worst cases.
+ * The palette is a warm "break time" system: cream backgrounds, deep-brown text, orange
+ * progress/accent and warm outlines in light mode, mirrored by espresso surfaces and
+ * cream/peach text in dark mode. **All 48 [androidx.compose.material3.ColorScheme] roles
+ * are authored explicitly in both [MonochromeLight] and [MonochromeDark]** — an omitted
+ * role silently falls back to Material3's default purple ramp, which would put an
+ * unintended hue into the app the first time a screen touched it. Every text/surface pair
+ * below is authored at >= 4.5:1 contrast and the structural `outline` border at >= 3:1
+ * against `surface`/`background` (where a bordered control actually sits); the lighter
+ * `outlineVariant` hairline measures 1.99:1 (light) and 2.50:1 (dark) against `surface`,
+ * so a divider is never the sole carrier of meaning. See `task-1-report.md` for the
+ * measured ratios and exact worst cases.
  */
 package com.septaalfauzan.meotime.presentation.theme
 
@@ -108,120 +110,111 @@ object MeotimeTokens {
 }
 
 /**
- * Light scheme: off-white background, near-black text, hairline borders as the only
- * separator. Neutrals carry a slight warm cast so surfaces do not read as blue-grey.
+ * Warm light scheme derived from "Time's up – break time" reference:
+ * cream background, deep-brown text, orange accent/progress, warm outlines.
+ * All 48 roles authored explicitly to avoid Material default hues.
  */
 val MonochromeLight = lightColorScheme(
-    primary = Color(0xFF111111),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFEDEDEA),
-    onPrimaryContainer = Color(0xFF111111),
-    inversePrimary = Color(0xFFF2F2EF),
-    secondary = Color(0xFF3A3A38),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFF2F2EF),
-    onSecondaryContainer = Color(0xFF1A1A19),
-    tertiary = Color(0xFF4A4A47),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFFAFAF7),
-    onTertiaryContainer = Color(0xFF1A1A19),
-    background = Color(0xFFFAFAF8),
-    onBackground = Color(0xFF111111),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF111111),
-    surfaceVariant = Color(0xFFEDEDE9),
-    onSurfaceVariant = Color(0xFF55554F),
+    primary = Color(0xFF3B2620),
+    onPrimary = Color(0xFFFFF8F0),
+    primaryContainer = Color(0xFFF6DDBE),
+    onPrimaryContainer = Color(0xFF3B2620),
+    inversePrimary = Color(0xFFFFC79A),
+    secondary = Color(0xFF6B4A3D),
+    onSecondary = Color(0xFFFFF8F0),
+    secondaryContainer = Color(0xFFF6E6D6),
+    onSecondaryContainer = Color(0xFF3B2620),
+    tertiary = Color(0xFFFF8F45),
+    onTertiary = Color(0xFF3B2620),
+    tertiaryContainer = Color(0xFFF6DDBE),
+    onTertiaryContainer = Color(0xFF3B2620),
+    background = Color(0xFFFDF3E3),
+    onBackground = Color(0xFF3B2620),
+    surface = Color(0xFFFDF8F0),
+    onSurface = Color(0xFF3B2620),
+    surfaceVariant = Color(0xFFF6E6D6),
+    onSurfaceVariant = Color(0xFF6B4A3D),
     surfaceTint = Color(0x00000000),
-    inverseSurface = Color(0xFF1A1A19),
-    inverseOnSurface = Color(0xFFF2F2EF),
-    surfaceBright = Color(0xFFFFFFFF),
-    surfaceDim = Color(0xFFE7E7E3),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFFAFAF8),
-    surfaceContainer = Color(0xFFF3F3F0),
-    surfaceContainerHigh = Color(0xFFEDEDEA),
-    surfaceContainerHighest = Color(0xFFE7E7E3),
-    outline = Color(0xFF111111),
-    outlineVariant = Color(0xFF8A8A84),
-    // Achromatic on purpose: the design spec forbids non-monochrome accents, so a
-    // destructive state must be carried by its label and icon, never by hue alone.
-    error = Color(0xFF1A1A19),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFE5E5E1),
-    onErrorContainer = Color(0xFF1A1A19),
+    inverseSurface = Color(0xFF3B2620),
+    inverseOnSurface = Color(0xFFFDF3E3),
+    surfaceBright = Color(0xFFFFFBF6),
+    surfaceDim = Color(0xFFF3E4D1),
+    surfaceContainerLowest = Color(0xFFFFFBF6),
+    surfaceContainerLow = Color(0xFFFDF3E3),
+    surfaceContainer = Color(0xFFFAEAD8),
+    surfaceContainerHigh = Color(0xFFF6DDBE),
+    surfaceContainerHighest = Color(0xFFF1D3B0),
+    outline = Color(0xFF8A6A5A),
+    outlineVariant = Color(0xFFC9A996),
+    error = Color(0xFF8C2F2F),
+    onError = Color(0xFFFFF8F0),
+    errorContainer = Color(0xFFF6D8D4),
+    onErrorContainer = Color(0xFF5C1D1D),
     scrim = Color(0xFF000000),
-    // Fixed roles (theme-invariant elements: FABs, badges, docked bars). Material3 would
-    // otherwise default these to its purple ramp, so each one is mapped onto this
-    // scheme's own warm-neutral ladder: *Fixed == the matching *Container tone,
-    // *FixedDim == one step down, on*Fixed == the matching on*Container colour.
-    primaryFixed = Color(0xFFEDEDEA),
-    primaryFixedDim = Color(0xFFE7E7E3),
-    onPrimaryFixed = Color(0xFF111111),
-    onPrimaryFixedVariant = Color(0xFF55554F),
-    secondaryFixed = Color(0xFFF2F2EF),
-    secondaryFixedDim = Color(0xFFE7E7E3),
-    onSecondaryFixed = Color(0xFF1A1A19),
-    onSecondaryFixedVariant = Color(0xFF55554F),
-    tertiaryFixed = Color(0xFFFAFAF7),
-    tertiaryFixedDim = Color(0xFFE7E7E3),
-    onTertiaryFixed = Color(0xFF1A1A19),
-    onTertiaryFixedVariant = Color(0xFF55554F),
+    primaryFixed = Color(0xFFF6DDBE),
+    primaryFixedDim = Color(0xFFF1D3B0),
+    onPrimaryFixed = Color(0xFF3B2620),
+    onPrimaryFixedVariant = Color(0xFF6B4A3D),
+    secondaryFixed = Color(0xFFF6E6D6),
+    secondaryFixedDim = Color(0xFFEED8C4),
+    onSecondaryFixed = Color(0xFF3B2620),
+    onSecondaryFixedVariant = Color(0xFF6B4A3D),
+    tertiaryFixed = Color(0xFFFFD8B8),
+    tertiaryFixedDim = Color(0xFFFFB07A),
+    onTertiaryFixed = Color(0xFF3B2620),
+    onTertiaryFixedVariant = Color(0xFF6B4A3D),
 )
 
-/** Dark scheme: structural counterpart of [MonochromeLight], not merely dimmed. */
+/** Warm dark scheme counterpart: deep espresso surfaces, cream text, orange accent. */
 val MonochromeDark = darkColorScheme(
-    primary = Color(0xFFF5F5F2),
-    onPrimary = Color(0xFF111111),
-    primaryContainer = Color(0xFF2A2A28),
-    onPrimaryContainer = Color(0xFFF5F5F2),
-    inversePrimary = Color(0xFF1A1A19),
-    secondary = Color(0xFFC9C9C3),
-    onSecondary = Color(0xFF111111),
-    secondaryContainer = Color(0xFF232321),
-    onSecondaryContainer = Color(0xFFE7E7E3),
-    tertiary = Color(0xFFA8A8A2),
-    onTertiary = Color(0xFF111111),
-    tertiaryContainer = Color(0xFF1F1F1E),
-    onTertiaryContainer = Color(0xFFDEDEDA),
-    background = Color(0xFF0A0A0A),
-    onBackground = Color(0xFFF5F5F2),
-    surface = Color(0xFF0A0A0A),
-    onSurface = Color(0xFFF5F5F2),
-    surfaceVariant = Color(0xFF232321),
-    onSurfaceVariant = Color(0xFFA3A39D),
+    primary = Color(0xFFFFE6D2),
+    onPrimary = Color(0xFF3B2620),
+    primaryContainer = Color(0xFF5A3A2E),
+    onPrimaryContainer = Color(0xFFFFF1E6),
+    inversePrimary = Color(0xFF3B2620),
+    secondary = Color(0xFFE7C9B8),
+    onSecondary = Color(0xFF2A1A15),
+    secondaryContainer = Color(0xFF4A332B),
+    onSecondaryContainer = Color(0xFFF6E6D6),
+    tertiary = Color(0xFFFF9B5C),
+    onTertiary = Color(0xFF2A1A15),
+    tertiaryContainer = Color(0xFF5A3623),
+    onTertiaryContainer = Color(0xFFFFE6D2),
+    background = Color(0xFF1C1411),
+    onBackground = Color(0xFFF8EBDD),
+    surface = Color(0xFF1C1411),
+    onSurface = Color(0xFFF8EBDD),
+    surfaceVariant = Color(0xFF3A2A24),
+    onSurfaceVariant = Color(0xFFD8C0B2),
     surfaceTint = Color(0x00000000),
-    inverseSurface = Color(0xFFF2F2EF),
-    inverseOnSurface = Color(0xFF1A1A19),
-    surfaceBright = Color(0xFF242422),
-    surfaceDim = Color(0xFF0A0A0A),
-    surfaceContainerLowest = Color(0xFF000000),
-    surfaceContainerLow = Color(0xFF121211),
-    surfaceContainer = Color(0xFF1A1A19),
-    surfaceContainerHigh = Color(0xFF242422),
-    surfaceContainerHighest = Color(0xFF2E2E2B),
-    outline = Color(0xFFF5F5F2),
-    outlineVariant = Color(0xFF6E6E68),
-    error = Color(0xFFF5F5F2),
-    onError = Color(0xFF111111),
-    errorContainer = Color(0xFF2E2E2B),
-    onErrorContainer = Color(0xFFF5F5F2),
+    inverseSurface = Color(0xFFF8EBDD),
+    inverseOnSurface = Color(0xFF2A1A15),
+    surfaceBright = Color(0xFF3A2C27),
+    surfaceDim = Color(0xFF1C1411),
+    surfaceContainerLowest = Color(0xFF140E0C),
+    surfaceContainerLow = Color(0xFF221815),
+    surfaceContainer = Color(0xFF2A1E1A),
+    surfaceContainerHigh = Color(0xFF352621),
+    surfaceContainerHighest = Color(0xFF412F29),
+    outline = Color(0xFFB99684),
+    outlineVariant = Color(0xFF6B5146),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF3A0A08),
+    errorContainer = Color(0xFF6B221D),
+    onErrorContainer = Color(0xFFFFDAD6),
     scrim = Color(0xFF000000),
-    // Fixed roles: same warm-neutral mapping as the light scheme, stepped onto the dark
-    // ladder. surfaceBright above is deliberately held at surfaceContainerHigh rather
-    // than lifted — the extra lightness had no light-side counterpart and pushed
-    // onSurfaceVariant to the system's tightest text margin.
-    primaryFixed = Color(0xFF2A2A28),
-    primaryFixedDim = Color(0xFF1A1A19),
-    onPrimaryFixed = Color(0xFFF5F5F2),
-    onPrimaryFixedVariant = Color(0xFFA3A39D),
-    secondaryFixed = Color(0xFF232321),
-    secondaryFixedDim = Color(0xFF1A1A19),
-    onSecondaryFixed = Color(0xFFE7E7E3),
-    onSecondaryFixedVariant = Color(0xFFA3A39D),
-    tertiaryFixed = Color(0xFF1F1F1E),
-    tertiaryFixedDim = Color(0xFF1A1A19),
-    onTertiaryFixed = Color(0xFFDEDEDA),
-    onTertiaryFixedVariant = Color(0xFFA3A39D),
+    primaryFixed = Color(0xFFF6DDBE),
+    primaryFixedDim = Color(0xFFE6C29E),
+    onPrimaryFixed = Color(0xFF2A1A15),
+    onPrimaryFixedVariant = Color(0xFF5A3A2E),
+    secondaryFixed = Color(0xFFF6E6D6),
+    secondaryFixedDim = Color(0xFFD8C0B2),
+    onSecondaryFixed = Color(0xFF2A1A15),
+    onSecondaryFixedVariant = Color(0xFF4A332B),
+    tertiaryFixed = Color(0xFFFFD8B8),
+    tertiaryFixedDim = Color(0xFFFFB07A),
+    onTertiaryFixed = Color(0xFF2A1A15),
+    onTertiaryFixedVariant = Color(0xFF5A3623),
 )
 
 /** Tight tracking on display/headline, generous leading on body copy. */
