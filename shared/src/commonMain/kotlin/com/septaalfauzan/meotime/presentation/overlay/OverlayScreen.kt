@@ -143,6 +143,7 @@ fun OverlayScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
+                borderWidth = 2.dp,
             ) {
                 Text(
                     text = "Manage restriction",

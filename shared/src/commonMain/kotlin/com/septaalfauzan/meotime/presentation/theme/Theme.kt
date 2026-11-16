@@ -306,7 +306,7 @@ fun MeotimeButton(
             .heightIn(min = MeotimeTokens.controls.minButtonHeight)
             .widthIn(min = MeotimeTokens.controls.minTouchTarget),
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
         colors = ButtonDefaults.buttonColors(),
         contentPadding = contentPadding,
         content = content,
@@ -318,11 +318,12 @@ fun MeotimeOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    borderWidth: Dp = MeotimeTokens.controls.borderWidth,
     contentPadding: PaddingValues = MeotimeTokens.controls.buttonContentPadding,
     content: @Composable RowScope.() -> Unit,
 ) {
     // Take the brush from the stock border so the enabled/disabled colour logic stays
-    // Material3's, but drive the width from our own token.
+    // Material3's, but drive the width from our token or an explicit override (e.g. time-up).
     val border = ButtonDefaults.outlinedButtonBorder(enabled)
     OutlinedButton(
         onClick = onClick,
@@ -330,9 +331,9 @@ fun MeotimeOutlinedButton(
             .heightIn(min = MeotimeTokens.controls.minButtonHeight)
             .widthIn(min = MeotimeTokens.controls.minTouchTarget),
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
         colors = ButtonDefaults.outlinedButtonColors(),
-        border = BorderStroke(MeotimeTokens.controls.borderWidth, border.brush),
+        border = BorderStroke(borderWidth, border.brush),
         contentPadding = contentPadding,
         content = content,
     )
