@@ -1,6 +1,5 @@
 package com.septaalfauzan.meotime.presentation.onboarding
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,21 +7,37 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
+import com.septaalfauzan.meotime.presentation.theme.MeotimeTextButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
-import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
+import kotlinx.coroutines.launch
 
+/**
+ * Three-page onboarding:
+ *
+ * 1. Welcome.
+ * 2. Permission request.
+ * 3. All set.
+ *
+ * Page 3 is unreachable until every permission is granted. While the user is on the
+ * ungranted permission page, the pager's own swipe is frozen (with an explicit Back
+ * button as the way back), and a revocation after reaching page 3 snaps the pager
+ * back to the permission page.
+ */
 @Composable
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
@@ -30,122 +45,152 @@ fun OnboardingScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsState()
-    LaunchedEffect(Unit) { viewModel.refresh() }
+
+    // Permissions are granted in another app (Settings) or in a runtime dialog, so the
+    // snapshot has to be re-read when the app resumes; the manual "Check permissions"
+    // button remains for a user who does not leave the app.
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
+    }
+
+    val pagerState = rememberPagerState(
+        initialPage = OnboardingPage.Welcome.ordinal,
+        pageCount = { OnboardingPageCount },
+    )
+    val scope = rememberCoroutineScope()
+    val allGranted = state.permissionStatus.allGranted
+
+    // Second line of defence: even if a future change lets the pager settle on the
+    // Ready page, a snapshot without all permissions returns the user to page 2.
+    LaunchedEffect(pagerState.currentPage, allGranted) {
+        if (pagerState.currentPage == OnboardingPage.Ready.ordinal && !allGranted) {
+            pagerState.animateScrollToPage(OnboardingPage.Permissions.ordinal)
+        }
+    }
 
     Column(
-        // Scrollable because the notice and the button are both below the fold at a large font
-        // scale, and a centred column that cannot scroll strands the user on a screen whose only
-        // exit is off-screen.
-        modifier = modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
-        Text("Take back control of your screen time.", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Meotime limits the apps you spend too much time on. All data stays on your device.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(24.dp))
-
-        PermissionRow(
-            title = "Usage Access",
-            detail = "Measure how long you use apps.",
-            granted = state.permissionStatus.usageAccess,
-            onClick = viewModel::requestUsageAccess,
-        )
-        PermissionRow(
-            title = "Display over other apps",
-            detail = "Show the reminder when you reach a limit.",
-            granted = state.permissionStatus.overlay,
-            onClick = viewModel::requestOverlay,
-        )
-        PermissionRow(
-            title = "Notifications",
-            detail = "Show the reminder while Meotime is not open.",
-            granted = state.permissionStatus.notification,
-            onClick = viewModel::requestNotification,
-        )
-        Spacer(Modifier.height(32.dp))
-
-        if (state.saveFailed) {
-            OnboardingNotice(
-                label = "Not saved",
-                message = "Meotime couldn't finish setting up. Nothing was changed — try again.",
-            )
-            Spacer(Modifier.height(MeotimeTokens.spacing.md))
-        }
-
-        if (state.permissionStatus.allGranted) {
-            MeotimeButton(
-                onClick = { viewModel.completeOnboarding(onFinished) },
-                // Double-submit guard: `saving` is lowered on every way out of the save, so a
-                // second tap would otherwise queue a second write and a second navigation.
-                enabled = !state.saving,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                // The label is the in-flight signal, as on the set-limit screen: the button is
-                // disabled *and* says what is happening, so the wait is not silent.
-                Text(if (state.saving) "Saving…" else "You're ready")
-            }
-        } else {
-            MeotimeOutlinedButton(
-                onClick = viewModel::refresh,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Check permissions")
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            // Freeze swiping while the permission page is ungranted. This also freezes
+            // back-swipe there, which is why the screen exposes an explicit Back button.
+            userScrollEnabled = allGranted ||
+                pagerState.settledPage == OnboardingPage.Welcome.ordinal,
+        ) { page ->
+            when (OnboardingPage.entries[page]) {
+                OnboardingPage.Welcome -> WelcomePage()
+                OnboardingPage.Permissions -> PermissionsPage(
+                    state = state,
+                    onRequestUsageAccess = viewModel::requestUsageAccess,
+                    onRequestOverlay = viewModel::requestOverlay,
+                    onRequestNotification = viewModel::requestNotification,
+                    onCheckPermissions = viewModel::refresh,
+                )
+                OnboardingPage.Ready -> ReadyPage(state = state)
             }
         }
-    }
-}
 
-/**
- * A label plus its message, for the same reason [SetLimitScreen]'s notice is built this way: a
- * notice carried by colour alone disappears for a user who cannot see it, and the label is what
- * says which kind of failure this is. The scheme here is deliberately achromatic, so
- * [androidx.compose.material3.MaterialTheme.colorScheme.error] is a heavier onSurface and would
- * add no signal the sentence does not already carry.
- */
-@Composable
-private fun OnboardingNotice(label: String, message: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Spacer(Modifier.height(MeotimeTokens.spacing.xxs))
-        Text(
-            message,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        OnboardingControls(
+            currentPage = pagerState.currentPage,
+            allGranted = allGranted,
+            saving = state.saving,
+            onBack = {
+                scope.launch {
+                    pagerState.animateScrollToPage(
+                        (pagerState.currentPage - 1).coerceAtLeast(0),
+                    )
+                }
+            },
+            onWelcomeContinue = {
+                scope.launch {
+                    pagerState.animateScrollToPage(OnboardingPage.Permissions.ordinal)
+                }
+            },
+            onPermissionsContinue = {
+                if (canNavigateToPage(OnboardingPage.Ready.ordinal, allGranted)) {
+                    scope.launch {
+                        pagerState.animateScrollToPage(OnboardingPage.Ready.ordinal)
+                    }
+                }
+            },
+            onStart = { viewModel.completeOnboarding(onFinished) },
         )
     }
 }
 
-/**
- * A granted permission is rendered as a status, not as a live control: there is nothing left to
- * request, so the row exposes nothing to a screen reader or a switch-control user instead of a
- * button that only *looks* finished. A disabled Material button would also drop the label to the
- * disabled alpha and fail text contrast, which is why the state is a plain label.
- */
 @Composable
-private fun PermissionRow(
-    title: String,
-    detail: String,
-    granted: Boolean,
-    onClick: () -> Unit,
+private fun OnboardingControls(
+    currentPage: Int,
+    allGranted: Boolean,
+    saving: Boolean,
+    onBack: () -> Unit,
+    onWelcomeContinue: () -> Unit,
+    onPermissionsContinue: () -> Unit,
+    onStart: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        modifier = Modifier
+            .widthIn(max = 480.dp)
+            .fillMaxWidth()
+            .padding(
+                horizontal = MeotimeTokens.spacing.screen,
+                vertical = MeotimeTokens.spacing.lg,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(detail, style = MaterialTheme.typography.bodySmall)
-        }
-        if (granted) {
-            Text("\u2713 Granted", style = MaterialTheme.typography.labelMedium)
-        } else {
-            MeotimeOutlinedButton(onClick = onClick) {
-                Text("Grant")
+        OnboardingPageIndicator(
+            currentPage = currentPage,
+            pageCount = OnboardingPageCount,
+        )
+        Spacer(Modifier.height(MeotimeTokens.spacing.md))
+
+        when (OnboardingPage.entries.getOrNull(currentPage)) {
+            OnboardingPage.Welcome -> {
+                MeotimeButton(
+                    onClick = onWelcomeContinue,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Continue")
+                }
             }
+
+            OnboardingPage.Permissions -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MeotimeTextButton(onClick = onBack) {
+                        Text("Back")
+                    }
+                    Spacer(Modifier.width(MeotimeTokens.spacing.sm))
+                    MeotimeButton(
+                        onClick = onPermissionsContinue,
+                        enabled = allGranted,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Continue")
+                    }
+                }
+            }
+
+            OnboardingPage.Ready -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MeotimeTextButton(onClick = onBack) {
+                        Text("Back")
+                    }
+                    Spacer(Modifier.width(MeotimeTokens.spacing.sm))
+                    MeotimeButton(
+                        onClick = onStart,
+                        enabled = allGranted && !saving,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (saving) "Saving…" else "Start MeoTime")
+                    }
+                }
+            }
+
+            null -> Unit
         }
     }
 }
