@@ -22,9 +22,11 @@ import com.septaalfauzan.meotime.permission.PermissionActions
 import com.septaalfauzan.meotime.permission.PermissionChecks
 import com.septaalfauzan.meotime.presentation.DeepLinkRequest
 import com.septaalfauzan.meotime.presentation.MeotimeAppDependencies
+import com.septaalfauzan.meotime.presentation.overlay.SleepingCatOverlayAnimation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 /**
@@ -110,6 +112,7 @@ class AppContainer(private val context: Context) {
             clock = clock,
             scope = scope,
         )
+        scope.launch { SleepingCatOverlayAnimation.preload() }
     }
 
     /**

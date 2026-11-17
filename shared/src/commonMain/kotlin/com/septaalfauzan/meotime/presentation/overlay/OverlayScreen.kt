@@ -1,5 +1,6 @@
 package com.septaalfauzan.meotime.presentation.overlay
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,11 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +28,13 @@ import com.septaalfauzan.meotime.presentation.format.formatUsage
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
+import io.github.alexzhirkevich.compottie.LottieComposition
+import io.github.alexzhirkevich.compottie.LottieCompositionSpec
+import io.github.alexzhirkevich.compottie.animateLottieCompositionAsState
+import io.github.alexzhirkevich.compottie.rememberLottieComposition
+import io.github.alexzhirkevich.compottie.rememberLottiePainter
+import meotime.shared.generated.resources.Res
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 
 /**
  * The limit notice, composable on top of whatever app the user is actually in.
@@ -43,6 +53,7 @@ import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
  * the reference hexes, and the progress is derived from the live `usageSeconds`/`limitSeconds`
  * the monitor hands in.
  */
+@OptIn(ExperimentalResourceApi::class)
 @Composable
 fun OverlayScreen(
     appName: String,
@@ -50,6 +61,7 @@ fun OverlayScreen(
     limitSeconds: Long,
     onLeave: () -> Unit,
     onManage: () -> Unit,
+    sleepingCatComposition: LottieComposition? = null,
 ) {
     val spacing = MeotimeTokens.spacing
     val progress = if (limitSeconds > 0) {
@@ -57,6 +69,18 @@ fun OverlayScreen(
     } else {
         1f
     }
+    val loadedSleepingCat by rememberLottieComposition {
+        LottieCompositionSpec.JsonString(
+            Res.readBytes("files/sleeping_cat.json").decodeToString(),
+        )
+    }
+    val sleepingCat = sleepingCatComposition
+        ?: SleepingCatOverlayAnimation.composition
+        ?: loadedSleepingCat
+    val sleepingCatProgress by animateLottieCompositionAsState(
+        composition = sleepingCat,
+        iterations = Int.MAX_VALUE,
+    )
 
     Box(
         modifier = Modifier
@@ -67,10 +91,18 @@ fun OverlayScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.lg),
+                .padding(horizontal = spacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
+            Image(
+                painter = rememberLottiePainter(
+                    composition = sleepingCat,
+                    progress = { sleepingCatProgress },
+                ),
+                contentDescription = "Sleeping cat",
+                modifier = Modifier.size(width = 300.dp, height = 268.dp),
+            )
             Text(
                 text = "Time\u2019s up",
                 style = MaterialTheme.typography.headlineMedium.copy(

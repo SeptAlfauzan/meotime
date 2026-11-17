@@ -20,6 +20,7 @@ navigationCompose = "2.9.2"
 coroutines = "1.10.2"
 robolectric = "4.17"
 datetime = "0.8.0"
+compottie = "2.0.2"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -46,6 +47,7 @@ jetbrains-navigation-compose = { module = "org.jetbrains.androidx.navigation:nav
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
+compottie = { module = "io.github.alexzhirkevich:compottie", version.ref = "compottie" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 sqliteFramework = { module = "androidx.sqlite:sqlite-framework", version.ref = "sqliteBundled" }
 

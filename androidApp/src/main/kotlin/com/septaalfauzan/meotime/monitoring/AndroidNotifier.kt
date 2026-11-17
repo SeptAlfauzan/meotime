@@ -81,7 +81,7 @@ class AndroidNotifier(private val context: Context) : Notifier {
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setContentIntent(contentIntent)
             .setOngoing(true)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_notification)
             .build()
     }
 

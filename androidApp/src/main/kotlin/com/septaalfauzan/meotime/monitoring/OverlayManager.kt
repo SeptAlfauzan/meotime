@@ -24,6 +24,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.septaalfauzan.meotime.EXTRA_REQUESTED_PACKAGE
 import com.septaalfauzan.meotime.presentation.overlay.OverlayScreen
+import com.septaalfauzan.meotime.presentation.overlay.SleepingCatOverlayAnimation
 import com.septaalfauzan.meotime.presentation.theme.MonochromeTheme
 
 class OverlayManager(private val context: Context) {
@@ -67,10 +68,13 @@ class OverlayManager(private val context: Context) {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
         val view = ComposeView(context).apply {
             // No background here on purpose: this is a TRANSLUCENT overlay window, and OverlayScreen
@@ -100,6 +104,7 @@ class OverlayManager(private val context: Context) {
                         limitSeconds = decision.limitSeconds,
                         onLeave = { leaveApp() },
                         onManage = { openMeotime(decision.packageName) },
+                        sleepingCatComposition = SleepingCatOverlayAnimation.composition,
                     )
                 }
             }
