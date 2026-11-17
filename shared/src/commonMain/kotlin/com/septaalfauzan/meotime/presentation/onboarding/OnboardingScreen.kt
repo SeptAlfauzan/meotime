@@ -63,7 +63,9 @@ fun OnboardingScreen(
 
     // Second line of defence: even if a future change lets the pager settle on the
     // Ready page, a snapshot without all permissions returns the user to page 2.
-    LaunchedEffect(pagerState.currentPage, allGranted) {
+    // Keyed on `allGranted` alone: `currentPage` flips at the midpoint of this very
+    // animation, and re-keying on it would cancel the scroll halfway between pages.
+    LaunchedEffect(allGranted) {
         if (pagerState.currentPage == OnboardingPage.Ready.ordinal && !allGranted) {
             pagerState.animateScrollToPage(OnboardingPage.Permissions.ordinal)
         }
