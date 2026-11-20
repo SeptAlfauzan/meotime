@@ -1,7 +1,7 @@
 package com.septaalfauzan.meotime.monitoring
 
 import com.septaalfauzan.meotime.monitoring.MonotonicClock
-import com.septaalfauzan.meotime.presentation.format.formatShortDuration
+import com.septaalfauzan.meotime.presentation.format.formatSessionNotificationText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -115,14 +115,10 @@ class NotificationController(
     private fun NotificationState.text(): String = when (this) {
         NotificationState.Idle -> "Monitoring active"
         NotificationState.UsageAccessNeeded -> "Tap to grant it again."
-        is NotificationState.Session -> buildString {
-            // Mid-dot, not a hyphen or a colon: a hyphen is ambiguous against the negative-looking
-            // difference between usage and limit, a colon wraps on narrow shade rows.
-            append(snapshot.appName)
-            append(" \u00B7 ")
-            append(formatShortDuration(snapshot.liveSeconds(clock.uptimeMillis())))
-            append(" / ")
-            append(formatShortDuration(snapshot.limitSeconds))
-        }
+        is NotificationState.Session -> formatSessionNotificationText(
+            snapshot.appName,
+            snapshot.liveSeconds(clock.uptimeMillis()),
+            snapshot.limitSeconds,
+        )
     }
 }

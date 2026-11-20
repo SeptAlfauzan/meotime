@@ -38,6 +38,11 @@ android {
         versionCode = 2
         versionName = "1.0.0"
     }
+    flavorDimensions += "edition"
+    productFlavors {
+        create("free") { }
+        create("pro") { applicationId = "com.septaalfauzan.meotime.pro" }
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -58,5 +63,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // AGP 9 no longer generates BuildConfig by default; `BuildConfig.FLAVOR` is required by
+        // AppContainer to select the Pro limit editor (Task 7) and by CompileKotlin flavor plumbing.
+        buildConfig = true
     }
 }

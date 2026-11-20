@@ -101,6 +101,13 @@ private class ExplodingIconProvider(private val exploding: Set<String>) : AppIco
         if (packageName in exploding) error("unrasterisable drawable for $packageName") else FakeImageBitmap
 }
 
+/**
+ * The fixed date the `dashboardRow` fixtures speak in. A daily app resolves its limit without
+ * consulting the date, so this value lets the weekly-aware call sites be exercised without moving
+ * any existing expectation.
+ */
+private val testDay = LocalDate(2026, 11, 20)
+
 class DashboardViewModelTest {
 
     private val repository = FakeRepository()
@@ -200,7 +207,7 @@ private fun newViewModel(
 
     @Test
     fun usageRowReportsRemainingTimeAndFullProgressBelowTheLimit() = runTest {
-        val row = dashboardRow(app(usageMinutes = 20, limitMinutes = 60))
+        val row = dashboardRow(app(usageMinutes = 20, limitMinutes = 60), testDay)
 
         assertFalse(row.limitReached)
         assertEquals(40L, row.remainingMinutes)
@@ -209,7 +216,7 @@ private fun newViewModel(
 
     @Test
     fun usageRowFlagsTheLimitReachedExactlyAtTheLimit() = runTest {
-        val row = dashboardRow(app(usageMinutes = 60, limitMinutes = 60))
+        val row = dashboardRow(app(usageMinutes = 60, limitMinutes = 60), testDay)
 
         assertTrue(row.limitReached)
         assertEquals(0L, row.remainingMinutes)
@@ -218,7 +225,7 @@ private fun newViewModel(
 
     @Test
     fun usageRowClampsProgressAndRemainingWhenOverTheLimit() = runTest {
-        val row = dashboardRow(app(usageMinutes = 95, limitMinutes = 60))
+        val row = dashboardRow(app(usageMinutes = 95, limitMinutes = 60), testDay)
 
         assertTrue(row.limitReached)
         assertEquals(0L, row.remainingMinutes)
@@ -227,7 +234,7 @@ private fun newViewModel(
 
     @Test
     fun usageRowSurvivesANonPositiveLimit() = runTest {
-        val row = dashboardRow(app(usageMinutes = 5, limitMinutes = 0))
+        val row = dashboardRow(app(usageMinutes = 5, limitMinutes = 0), testDay)
 
         assertTrue(row.limitReached)
         assertEquals(0L, row.remainingMinutes)
@@ -236,7 +243,7 @@ private fun newViewModel(
 
     @Test
     fun pausedRowReportsNoBudgetBecauseNothingIsMeasuringIt() = runTest {
-        val row = dashboardRow(app(usageMinutes = 0, limitMinutes = 60, enabled = false))
+        val row = dashboardRow(app(usageMinutes = 0, limitMinutes = 60, enabled = false), testDay)
 
         assertTrue(row.paused)
         assertEquals(0f, row.progress)
@@ -246,7 +253,7 @@ private fun newViewModel(
 
     @Test
     fun pausedRowKeepsALimitItHadAlreadyReached() = runTest {
-        val row = dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false))
+        val row = dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false), testDay)
 
         assertTrue(row.paused)
         assertTrue(row.limitReached)
@@ -261,30 +268,30 @@ private fun newViewModel(
      */
     @Test
     fun statusLabelNamesEveryStateARowCanBeIn() = runTest {
-        assertEquals("Limit reached", appStatusLabel(dashboardRow(app(usageMinutes = 60, limitMinutes = 60))))
+        assertEquals("Limit reached", appStatusLabel(dashboardRow(app(usageMinutes = 60, limitMinutes = 60), testDay)))
         assertEquals(
             "Monitoring paused",
-            appStatusLabel(dashboardRow(app(usageMinutes = 10, limitMinutes = 60, enabled = false))),
+            appStatusLabel(dashboardRow(app(usageMinutes = 10, limitMinutes = 60, enabled = false), testDay)),
         )
-        assertEquals("1 minute remaining", appStatusLabel(dashboardRow(app(usageMinutes = 59, limitMinutes = 60))))
-        assertEquals("5 minutes remaining", appStatusLabel(dashboardRow(app(usageMinutes = 55, limitMinutes = 60))))
+        assertEquals("1 minute remaining", appStatusLabel(dashboardRow(app(usageMinutes = 59, limitMinutes = 60), testDay)))
+        assertEquals("5 minutes remaining", appStatusLabel(dashboardRow(app(usageMinutes = 55, limitMinutes = 60), testDay)))
         // A limit that cannot be measured reports reached, and a paused app that had already reached
         // its limit keeps saying so: both are real readings, not stale ones.
-        assertEquals("Limit reached", appStatusLabel(dashboardRow(app(usageMinutes = 0, limitMinutes = 0))))
+        assertEquals("Limit reached", appStatusLabel(dashboardRow(app(usageMinutes = 0, limitMinutes = 0), testDay)))
         assertEquals(
             "Limit reached",
-            appStatusLabel(dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false))),
+            appStatusLabel(dashboardRow(app(usageMinutes = 95, limitMinutes = 60, enabled = false), testDay)),
         )
         // The sub-minute states, which need seconds to express. A paused app's remaining time is
         // zero by construction, so the zero branch has to sit below `paused` or every paused row
         // would start claiming to have under a minute left of a budget nothing is spending.
         assertEquals(
             "Less than a minute remaining",
-            appStatusLabel(dashboardRow(appAtSeconds(usageSeconds = 1_770L, limitMinutes = 30))),
+            appStatusLabel(dashboardRow(appAtSeconds(usageSeconds = 1_770L, limitMinutes = 30), testDay)),
         )
         assertEquals(
             "Monitoring paused",
-            appStatusLabel(dashboardRow(appAtSeconds(usageSeconds = 1_770L, limitMinutes = 30, enabled = false))),
+            appStatusLabel(dashboardRow(appAtSeconds(usageSeconds = 1_770L, limitMinutes = 30, enabled = false), testDay)),
         )
     }
 
@@ -329,6 +336,7 @@ private fun newViewModel(
                 updatedAt = 0,
                 todayUsageSeconds = 1_770L,
             ),
+            testDay,
         )
 
         assertFalse(row.limitReached, "29m30s against a 30m limit is not over the limit")

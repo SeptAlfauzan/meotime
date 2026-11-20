@@ -19,7 +19,7 @@ actual fun createMeotimeDatabase(nameOverride: String?): MeotimeDatabase {
     val name = nameOverride ?: MeotimeDatabase.DB_NAME
     return Room.databaseBuilder(AndroidAppContextHolder.context, MeotimeDatabase::class.java, name)
         .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
         .build()
 }
 

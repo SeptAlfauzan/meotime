@@ -3,6 +3,7 @@ package com.septaalfauzan.meotime.presentation.appsettings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.septaalfauzan.meotime.domain.InstalledAppCheck
+import com.septaalfauzan.meotime.domain.limit.effectiveLimitMinutes
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import com.septaalfauzan.meotime.presentation.dashboard.DashboardAppRow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 /**
  * The app-settings screen's state.
@@ -41,6 +43,12 @@ import kotlinx.coroutines.launch
 data class AppSettingsUiState(
     val app: MonitoredApp? = null,
     val usageSeconds: Long = 0,
+    /**
+     * Today's date, set by the read before the screen leaves the skeleton: the row resolves its
+     * limit against it, and the `observeToday` collector keeps it rolling over at midnight while
+     * the screen is open.
+     */
+    val today: LocalDate? = null,
     val loading: Boolean = true,
     val error: Boolean = false,
     val missingArgument: Boolean = false,
@@ -60,12 +68,27 @@ data class AppSettingsUiState(
     val removeFailed: Boolean = false,
 ) {
     /**
-     * The daily limit, taken from the row rather than held separately.
-     *
-     * The brief's version stored it and overwrote it on every write, which is two values that can
-     * disagree; here there is one, and the screen cannot show a limit the row does not have.
+     * The limit that applies on [today] for [app]: the weekly value for today's weekday when the
+     * app is on a schedule, the daily limit otherwise, and `null` when the schedule says today is
+     * not limited. A weekly app on an unlimited weekday is a real `null`, not a missing answer —
+     * [noLimitToday] carries the distinction.
      */
-    val limitMinutes: Int get() = app?.dailyLimitMinutes ?: 0
+    val todayEffectiveLimit: Int?
+        get() = app?.let { app -> today?.let { effectiveLimitMinutes(app, it) } }
+
+    /**
+     * The limit the screen prints today: the value the row carries when there is one, `0`
+     * otherwise. For a Free app the limit is never `0`, so the two meanings are separated by
+     * [noLimitToday].
+     */
+    val limitMinutes: Int get() = todayEffectiveLimit ?: 0
+
+    /**
+     * True when the screen should say "No limit today": the app is on a weekly schedule and the
+     * schedule carries no limit for today's weekday.
+     */
+    val noLimitToday: Boolean
+        get() = app?.usesWeeklyLimits == true && todayEffectiveLimit == null
 
     /**
      * What the screen titles itself with.
@@ -100,7 +123,9 @@ data class AppSettingsUiState(
      * screens instead of two copies of one rule.
      */
     val row: DashboardAppRow?
-        get() = app?.let { dashboardRow(it.copy(todayUsageSeconds = usageSeconds)) }
+        get() = app?.let { app ->
+            today?.let { date -> dashboardRow(app.copy(todayUsageSeconds = usageSeconds), date) }
+        }
 
     /**
      * Whether the settings body may be written at all.
@@ -213,6 +238,13 @@ class AppSettingsViewModel(
 
     init {
         resolve()
+        // The screen's date is kept live so an open settings page rolls over at midnight, the way
+        // the dashboard's is.
+        viewModelScope.launch {
+            useCases.observeToday().collect { today ->
+                _state.update { it.copy(today = today) }
+            }
+        }
     }
 
     /**
@@ -378,6 +410,10 @@ class AppSettingsViewModel(
                 return@launch
             }
             val (app, usage, installed) = resolved
+            // Today's date lands in the same update that clears `loading`: the row resolves its
+            // limit against a date, and a state that said "resolved" while the date was still
+            // unknown would let the screen compute against no day.
+            val today = useCases.today()
             _state.update { current ->
                 if (app == null) {
                     // A read that succeeded and found nothing. Distinct from [error]: there is
@@ -385,6 +421,7 @@ class AppSettingsViewModel(
                     current.copy(
                         app = null,
                         usageSeconds = 0,
+                        today = today,
                         loading = false,
                         error = false,
                         notMonitored = true,
@@ -393,6 +430,7 @@ class AppSettingsViewModel(
                     current.copy(
                         app = app.copy(installed = installed ?: app.installed),
                         usageSeconds = usage,
+                        today = today,
                         loading = false,
                         error = false,
                         notMonitored = false,

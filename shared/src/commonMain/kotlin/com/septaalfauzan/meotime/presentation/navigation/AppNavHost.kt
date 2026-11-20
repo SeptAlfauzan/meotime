@@ -22,6 +22,8 @@ import com.septaalfauzan.meotime.presentation.dashboard.DashboardScreen
 import com.septaalfauzan.meotime.presentation.dashboard.DashboardViewModel
 import com.septaalfauzan.meotime.presentation.limit.SetLimitScreen
 import com.septaalfauzan.meotime.presentation.limit.SetLimitViewModel
+import com.septaalfauzan.meotime.presentation.limit.WeeklyLimitScreen
+import com.septaalfauzan.meotime.presentation.limit.WeeklyLimitViewModel
 import com.septaalfauzan.meotime.presentation.onboarding.OnboardingScreen
 import com.septaalfauzan.meotime.presentation.onboarding.OnboardingViewModel
 import kotlinx.coroutines.flow.catch
@@ -155,32 +157,56 @@ AddAppViewModel(
             // a real answer — the destination renders its own "couldn't open this app" state rather
             // than inventing a package to save.
             val requestedPackage = entry.arguments?.read { getStringOrNull(Routes.ARGUMENT_PACKAGE) }
-            val vm: SetLimitViewModel = viewModel {
-                // The label and the current limit are resolved inside the view model, not here: a
-                // launcher that throws while the destination is being composed cannot become a
-                // retryable state any other way.
-                SetLimitViewModel(
-                    requestedPackageName = requestedPackage,
-                    installedAppsProvider = deps.installedAppsProvider,
-                    useCases = deps.useCases,
+            // The two editors share the exits and they promise the same stacks, so the callbacks
+            // are named once and passed to whichever editor this flavor selects below.
+            val onClose: () -> Unit = {
+                // Leaving pops the step that sent us here, so the flow is still walkable. The
+                // fallback covers a stack with nothing below this destination, where a pop is a
+                // no-op and the screen's only action would be dead.
+                if (!navController.popBackStack()) navController.landOnDashboard()
+            }
+            // The conflict's button says "Back to my apps", so it goes to the apps: the dashboard
+            // is where the row that won the conflict now lives. A pop would land on addapp — the
+            // step that sent us here — so the label would promise a screen the user does not
+            // arrive at. Same destination as a successful save, reached for the same reason: the
+            // limit screen has nothing left to say about that app.
+            val onBackToApps: () -> Unit = { navController.landOnDashboard() }
+            val onSaved: () -> Unit = { navController.landOnDashboard() }
+            if (deps.weeklyLimitsEnabled) {
+                // Pro flavor: the week editor owns the schedule end to end — the same route, the
+                // same argument, the same exits.
+                val vm: WeeklyLimitViewModel = viewModel {
+                    // Resolving happens inside the view model, not here: a launcher that throws
+                    // while the destination is being composed cannot become a retryable state any
+                    // other way.
+                    WeeklyLimitViewModel(
+                        requestedPackageName = requestedPackage,
+                        installedAppsProvider = deps.installedAppsProvider,
+                        useCases = deps.useCases,
+                    )
+                }
+                WeeklyLimitScreen(
+                    viewModel = vm,
+                    onClose = onClose,
+                    onBackToApps = onBackToApps,
+                    onSaved = onSaved,
+                )
+            } else {
+                // Free flavor: the set-limit screen, untouched by the Pro editor.
+                val vm: SetLimitViewModel = viewModel {
+                    SetLimitViewModel(
+                        requestedPackageName = requestedPackage,
+                        installedAppsProvider = deps.installedAppsProvider,
+                        useCases = deps.useCases,
+                    )
+                }
+                SetLimitScreen(
+                    viewModel = vm,
+                    onClose = onClose,
+                    onBackToApps = onBackToApps,
+                    onSaved = onSaved,
                 )
             }
-            SetLimitScreen(
-                viewModel = vm,
-                onClose = {
-                    // Leaving pops the step that sent us here, so the flow is still walkable. The
-                    // fallback covers a stack with nothing below this destination, where a pop is a
-                    // no-op and the screen's only action would be dead.
-                    if (!navController.popBackStack()) navController.landOnDashboard()
-                },
-                // The conflict's button says "Back to my apps", so it goes to the apps: the
-                // dashboard is where the row that won the conflict now lives. A pop would land on
-                // addapp — the step that sent us here — so the label would promise a screen the
-                // user does not arrive at. Same destination as a successful save, reached for the
-                // same reason: the limit screen has nothing left to say about that app.
-                onBackToApps = { navController.landOnDashboard() },
-                onSaved = { navController.landOnDashboard() },
-            )
         }
         composable(
             route = Routes.APP_SETTINGS,

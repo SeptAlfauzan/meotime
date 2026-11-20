@@ -47,6 +47,11 @@ data class MeotimeAppDependencies(
     val installedAppCheck: InstalledAppCheck,
     val appIconProvider: AppIconProvider,
     val deepLink: DeepLinkRequest? = null,
+    /**
+     * Compile-time edition flag: true only on the Pro Android flavor, false elsewhere (the iOS
+     * host and every other construction site). Task 7 uses it to select the Pro limit editor.
+     */
+    val weeklyLimitsEnabled: Boolean = false,
 )
 
 /**

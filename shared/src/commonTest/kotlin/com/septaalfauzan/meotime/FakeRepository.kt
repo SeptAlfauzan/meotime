@@ -1,9 +1,11 @@
 package com.septaalfauzan.meotime
 
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.domain.limit.DEFAULT_LIMIT_MINUTES
 import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
 import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import kotlinx.datetime.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +42,17 @@ class FakeRepository : ScreenTimeRepository {
 
     private fun app(packageName: String): MonitoredApp? = apps.value.find { it.packageName == packageName }
 
+    /** The free-row shape the real repository reads back: every weekday carries [limit]. */
+    private fun dailySchedule(limit: Int) = WeeklyLimits(
+        monday = limit,
+        tuesday = limit,
+        wednesday = limit,
+        thursday = limit,
+        friday = limit,
+        saturday = limit,
+        sunday = limit,
+    )
+
     /**
      * Stands in for midnight: the real repository re-queries `daily_usage` for the new date when
      * `TodayKey.dateFlow()` emits (asserted in `ScreenTimeRepositoryImplTest`), which surfaces here
@@ -62,6 +75,33 @@ class FakeRepository : ScreenTimeRepository {
                 packageName = packageName,
                 appName = appName,
                 dailyLimitMinutes = dailyLimitMinutes,
+                usesWeeklyLimits = false,
+                weeklyLimits = dailySchedule(dailyLimitMinutes),
+                enabled = true,
+                createdAt = 0,
+                updatedAt = 0,
+            )
+        }
+    }
+
+    /**
+     * The weekly counterpart of [addMonitoredAppBlocking]: marker `true` and the schedule on the
+     * stored row, with the legacy [MonitoredApp.dailyLimitMinutes] left at the default-limit value
+     * the real repository writes.
+     */
+    fun addMonitoredAppWithWeeklyLimitsBlocking(
+        packageName: String,
+        appName: String,
+        weeklyLimits: WeeklyLimits,
+    ) {
+        apps.update {
+            it + MonitoredApp(
+                id = it.size.toLong(),
+                packageName = packageName,
+                appName = appName,
+                dailyLimitMinutes = DEFAULT_LIMIT_MINUTES,
+                usesWeeklyLimits = true,
+                weeklyLimits = weeklyLimits,
                 enabled = true,
                 createdAt = 0,
                 updatedAt = 0,
@@ -75,7 +115,22 @@ class FakeRepository : ScreenTimeRepository {
 
     fun updateDailyLimitBlocking(packageName: String, dailyLimitMinutes: Int) {
         apps.update { list ->
-            list.map { if (it.packageName == packageName) it.copy(dailyLimitMinutes = dailyLimitMinutes) else it }
+            list.map {
+                if (it.packageName == packageName) it.copy(
+                    dailyLimitMinutes = dailyLimitMinutes,
+                    usesWeeklyLimits = false,
+                    weeklyLimits = dailySchedule(dailyLimitMinutes),
+                ) else it
+            }
+        }
+    }
+
+    /** The weekly counterpart of [updateDailyLimitBlocking]: marker `true`, schedule set. */
+    fun updateWeeklyLimitsBlocking(packageName: String, weeklyLimits: WeeklyLimits) {
+        apps.update { list ->
+            list.map {
+                if (it.packageName == packageName) it.copy(usesWeeklyLimits = true, weeklyLimits = weeklyLimits) else it
+            }
         }
     }
 
@@ -91,25 +146,23 @@ class FakeRepository : ScreenTimeRepository {
     override suspend fun getTodayUsageSeconds(packageName: String, date: String): Long = usage.value[packageName] ?: 0L
     override suspend fun addMonitoredApp(packageName: String, appName: String, dailyLimitMinutes: Int): Boolean {
         if (app(packageName) != null) return false
-        apps.update {
-            it + MonitoredApp(
-                id = it.size.toLong(),
-                packageName = packageName,
-                appName = appName,
-                dailyLimitMinutes = dailyLimitMinutes,
-                enabled = true,
-                createdAt = 0,
-                updatedAt = 0,
-            )
-        }
+        addMonitoredAppBlocking(packageName, appName, dailyLimitMinutes)
+        return true
+    }
+    override suspend fun addMonitoredAppWithWeeklyLimits(
+        packageName: String,
+        appName: String,
+        weeklyLimits: WeeklyLimits,
+    ): Boolean {
+        if (app(packageName) != null) return false
+        addMonitoredAppWithWeeklyLimitsBlocking(packageName, appName, weeklyLimits)
         return true
     }
     override suspend fun updateDailyLimit(packageName: String, dailyLimitMinutes: Int) {
-        apps.update { list ->
-            list.map {
-                if (it.packageName == packageName) it.copy(dailyLimitMinutes = dailyLimitMinutes) else it
-            }
-        }
+        updateDailyLimitBlocking(packageName, dailyLimitMinutes)
+    }
+    override suspend fun updateWeeklyLimits(packageName: String, weeklyLimits: WeeklyLimits) {
+        updateWeeklyLimitsBlocking(packageName, weeklyLimits)
     }
     override suspend fun setMonitoringEnabled(packageName: String, enabled: Boolean) {
         apps.update { list ->

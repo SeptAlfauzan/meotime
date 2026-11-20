@@ -7,6 +7,8 @@ import com.septaalfauzan.meotime.FakeTodayKey
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
 import com.septaalfauzan.meotime.domain.InstalledApp
 import com.septaalfauzan.meotime.domain.InstalledAppsProvider
+import com.septaalfauzan.meotime.domain.limit.MAX_LIMIT_MINUTES
+import com.septaalfauzan.meotime.domain.limit.MIN_LIMIT_MINUTES
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import kotlinx.coroutines.CompletableDeferred

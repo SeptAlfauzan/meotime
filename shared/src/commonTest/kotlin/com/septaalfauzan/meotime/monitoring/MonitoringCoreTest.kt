@@ -3,6 +3,9 @@
 package com.septaalfauzan.meotime
 
 import com.septaalfauzan.meotime.data.local.TodayKey
+import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import com.septaalfauzan.meotime.monitoring.MonitoringCore
 import com.septaalfauzan.meotime.monitoring.MonotonicClock
 import com.septaalfauzan.meotime.monitoring.SessionSnapshot
@@ -12,8 +15,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -24,6 +29,32 @@ import kotlinx.coroutines.test.runTest
 class FakeTodayKey(private val date: String) : TodayKey {
     override fun todayIso(): String = date
     override fun dateFlow(): Flow<String> = flowOf(date)
+}
+
+/**
+ * A [TodayKey] the test moves mid-session: the core caches a session's start date and re-reads
+ * this on every tick, so a test flips [date] to cross midnight without starting a new session.
+ */
+class MutableFakeTodayKey(var date: String) : TodayKey {
+    override fun todayIso(): String = date
+    override fun dateFlow(): Flow<String> = MutableStateFlow(date)
+}
+
+/**
+ * Parks the rollover's re-read of [packageName] on [gate], so a foreground switch can land while
+ * createSession is suspended. Other packages pass straight through.
+ */
+private class GatedRolloverReadRepository(
+    private val delegate: ScreenTimeRepository,
+    private val packageName: String,
+) : ScreenTimeRepository by delegate {
+    var armed = false
+    val gate = CompletableDeferred<Unit>()
+
+    override suspend fun getMonitoredApp(packageName: String): MonitoredApp? {
+        if (armed && packageName == this@GatedRolloverReadRepository.packageName) gate.await()
+        return delegate.getMonitoredApp(packageName)
+    }
 }
 
 private const val INSTAGRAM = "com.instagram.android"
@@ -53,11 +84,12 @@ class MonitoringCoreTest {
     }
 
     private fun TestScope.core(
-        repository: FakeRepository,
+        repository: ScreenTimeRepository,
+        todayKey: TodayKey = today,
         onSessionChanged: ((SessionSnapshot?) -> Unit)? = null,
     ) = MonitoringCore(
         repository = repository,
-        todayKey = today,
+        todayKey = todayKey,
         selfPackageName = selfPkg,
         clock = MonotonicClock { currentTime },
         scope = this,
@@ -413,4 +445,119 @@ class MonitoringCoreTest {
         assertEquals(1_700_000_030_000L, session.endedAtEpochMillis)
     }
 
+    @Test
+    fun noLimitDayRecordsUsageButNeverOverlays() = runTest {
+        // `WeeklyLimits()` is the all-null schedule — "no limit on any day" — not the daily limit.
+        val repo = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits())
+        }
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        assertNotNull(seen.last())
+        assertNull(seen.last()!!.limitSeconds, "an all-null schedule means no limit today")
+        assertNull(core.activeTick, "a no-limit day has nothing to tick for")
+
+        advanceTimeBy(2 * 60 * 60_000L)
+        assertTrue(decisions.isEmpty(), "two hours on an unlimited app is not a crossing")
+
+        core.onForegroundChange(LAUNCHER)
+        assertEquals(7200L, repo.usage.value[INSTAGRAM])
+    }
+
+    @Test
+    fun sessionCrossingMidnightReopensWithTheNewDaysLimit() = runTest {
+        val key = MutableFakeTodayKey("2026-09-28") // a Monday: 30 minutes
+        val repo = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits(monday = 30))
+        }
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, todayKey = key, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        assertEquals(1_800L, seen.last()!!.limitSeconds, "Monday is limited to 30 minutes")
+        assertNotNull(core.activeTick)
+
+        advanceTimeBy(60_000L) // a minute on Monday, under the limit
+        key.date = "2026-09-29" // Tuesday: not limited
+
+        advanceTimeBy(1_000L)
+        runCurrent()
+
+        assertTrue(decisions.isEmpty(), "Tuesday is not limited, so no overlay may fire")
+        assertNull(core.activeTick, "a no-limit day starts no ticker")
+        assertNotNull(seen.last())
+        assertNull(
+            seen.last()!!.limitSeconds,
+            "the snapshot published after the flip carries the new day's limit",
+        )
+
+        advanceTimeBy(2 * 60 * 60_000L)
+        runCurrent()
+        assertTrue(decisions.isEmpty(), "Tuesday's lack of a rule must not leak back to Monday's")
+    }
+
+    /**
+     * Final review #2: createSession suspends on repository reads during rollover. If another
+     * app's foreground switch claims the slot in that window, the rollover must not revive the old
+     * app or start a second ticker over the new session.
+     */
+    @Test
+    fun foregroundSwitchDuringMidnightRolloverIsNotOverwritten() = runTest {
+        val key = MutableFakeTodayKey("2026-09-28") // Monday
+        val delegate = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits(monday = 30))
+            addMonitoredAppBlocking(YOUTUBE, "YouTube", 30)
+        }
+        val repo = GatedRolloverReadRepository(delegate, INSTAGRAM)
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, todayKey = key, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        advanceTimeBy(60_000L)
+        key.date = "2026-09-29" // Tuesday
+        repo.armed = true
+
+        advanceTimeBy(1_000L)
+        runCurrent() // rollover reaches createSession and parks on the gate
+
+        core.onForegroundChange(YOUTUBE) // another app claims the slot during the suspension
+
+        repo.gate.complete(Unit)
+        runCurrent()
+
+        assertEquals(YOUTUBE, seen.last()!!.packageName)
+        assertNotNull(core.activeTick)
+        assertTrue(decisions.isEmpty())
+    }
+
+    @Test
+    fun aLimitStartingOnTheNewDayStartsTickingAndFiresOnce() = runTest {
+        val key = MutableFakeTodayKey("2026-09-28") // a Monday: not limited
+        val repo = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits(tuesday = 30))
+        }
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, todayKey = key, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        assertNull(seen.last()!!.limitSeconds, "Monday is not limited")
+        assertNull(core.activeTick)
+
+        advanceTimeBy(60_000L)
+        key.date = "2026-09-29" // Tuesday: limited to 30 minutes
+
+        // Monday's session ends and the same app re-enters on Tuesday: a new session opens.
+        core.onForegroundChange(LAUNCHER)
+        core.onForegroundChange(INSTAGRAM)
+
+        assertEquals(1_800L, seen.last()!!.limitSeconds, "the Tuesday session carries Tuesday's limit")
+        assertNotNull(core.activeTick, "the limited new day starts a ticker")
+
+        advanceTimeBy(30 * 60_000L)
+        runCurrent()
+        assertEquals(1, decisions.size, "the new day's limit fires once")
+        assertEquals(INSTAGRAM, decisions[0].packageName)
+    }
 }

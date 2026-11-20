@@ -252,10 +252,10 @@ private fun SetLimitEditor(
 /**
  * A label plus its message. Two pieces of text, not a tinted box: a notice that is only a colour
  * disappears for a user who cannot see it, and the label is what says which of the two failure
- * kinds this is.
+ * kinds this is. Shared by both limit editors (the weekly screen reuses it for its own copy).
  */
 @Composable
-private fun SetLimitNotice(label: String, message: String) {
+internal fun SetLimitNotice(label: String, message: String) {
     val spacing = MeotimeTokens.spacing
     Column(
         modifier = Modifier
@@ -277,7 +277,7 @@ private fun SetLimitNotice(label: String, message: String) {
  * honest action is to leave — the message says so rather than rendering an editor that cannot work.
  */
 @Composable
-private fun SetLimitMissingArgument(onClose: () -> Unit) {
+internal fun SetLimitMissingArgument(onClose: () -> Unit) {
     val spacing = MeotimeTokens.spacing
     Column(
         modifier = Modifier
@@ -300,7 +300,7 @@ private fun SetLimitMissingArgument(onClose: () -> Unit) {
 }
 
 @Composable
-private fun SetLimitReadError(onRetry: () -> Unit) {
+internal fun SetLimitReadError(onRetry: () -> Unit) {
     val spacing = MeotimeTokens.spacing
     Column(
         modifier = Modifier
@@ -330,7 +330,7 @@ private fun SetLimitReadError(onRetry: () -> Unit) {
  * announced bar by bar, and `mergeDescendants` is what makes that stick.
  */
 @Composable
-private fun SetLimitSkeleton() {
+internal fun SetLimitSkeleton() {
     val spacing = MeotimeTokens.spacing
     val transition = rememberInfiniteTransition(label = "set-limit-skeleton")
     val alpha by transition.animateFloat(

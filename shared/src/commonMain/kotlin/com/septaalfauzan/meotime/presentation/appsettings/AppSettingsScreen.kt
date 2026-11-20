@@ -187,7 +187,13 @@ private fun AppSettingsContent(
         }
 
         AppSettingsStatRow(label = "Used today", value = formatUsage(state.usageSeconds))
-        AppSettingsStatRow(label = "Daily limit", value = formatLimitMinutes(state.limitMinutes))
+        AppSettingsStatRow(
+            // Weekly apps print their weekday's limit as "Today's limit"; Free rows keep the
+            // stored daily limit. When the schedule is empty today, [AppSettingsUiState.noLimitToday]
+            // makes the value read "No limit today" instead of a number.
+            label = if (app.usesWeeklyLimits) "Today's limit" else "Daily limit",
+            value = if (state.noLimitToday) "No limit today" else formatLimitMinutes(state.limitMinutes),
+        )
         if (row != null) {
             AppSettingsStatRow(label = "Status", value = appStatusLabel(row), emphasised = true)
             // The bar is a redundant second channel: the row above states the same thing in words,
