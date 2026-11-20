@@ -3,6 +3,10 @@ package com.septaalfauzan.meotime.presentation.limit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.septaalfauzan.meotime.domain.InstalledAppsProvider
+import com.septaalfauzan.meotime.domain.limit.DEFAULT_LIMIT_MINUTES
+import com.septaalfauzan.meotime.domain.limit.MAX_LIMIT_MINUTES
+import com.septaalfauzan.meotime.domain.limit.MIN_LIMIT_MINUTES
+import com.septaalfauzan.meotime.domain.limit.clampLimitMinutes
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -11,21 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-/**
- * Smallest limit a user can pick, and the largest.
- *
- * 1 minute is the floor because a limit of 0 would mean "warn immediately", which the limit checker
- * already reaches by *usage*, not by a zero budget ([com.septaalfauzan.meotime.monitoring.LimitChecker]
- * compares `usage >= limit`); a stored 0 is therefore indistinguishable from 1 and would make the
- * stepper's floor a lie. 24 hours is the ceiling because a daily budget larger than a day is not a
- * budget.
- */
-internal const val MIN_LIMIT_MINUTES = 1
-internal const val MAX_LIMIT_MINUTES = 24 * 60
-
-/** What a new app starts on. Half an hour: long enough to be useful, short enough to notice. */
-internal const val DEFAULT_LIMIT_MINUTES = 30
 
 /**
  * The shortcut values the screen offers, in minutes. They are a convenience, never a constraint:
@@ -83,14 +72,6 @@ data class SetLimitUiState(
     val canIncrement: Boolean
         get() = minutes < MAX_LIMIT_MINUTES
 }
-
-/**
- * Clamps a requested limit into the range the state can hold.
- *
- * The editor, the prefill and the formatter all go through this one function, so "1440" means the
- * same thing as a stored value, a rendered label and a stepper ceiling.
- */
-internal fun clampLimitMinutes(value: Int): Int = value.coerceIn(MIN_LIMIT_MINUTES, MAX_LIMIT_MINUTES)
 
 /**
  * What a save attempt did. Private to the screen: only the state flags cross the boundary.
