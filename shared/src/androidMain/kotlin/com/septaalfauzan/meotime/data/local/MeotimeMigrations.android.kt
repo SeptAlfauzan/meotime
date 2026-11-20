@@ -14,3 +14,9 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         MIGRATION_2_3_SQL.forEach { db.execSQL(it) }
     }
 }
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_3_4_SQL.forEach { db.execSQL(it) }
+    }
+}
