@@ -10,7 +10,9 @@ import com.septaalfauzan.meotime.data.local.entity.MonitoredAppEntity
 import com.septaalfauzan.meotime.data.local.entity.SyncStateEntity
 import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
 import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
+import com.septaalfauzan.meotime.domain.limit.DEFAULT_LIMIT_MINUTES
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlin.time.Clock
@@ -65,11 +67,59 @@ class ScreenTimeRepositoryImpl(
                 packageName = packageName,
                 appName = appName,
                 dailyLimitMinutes = dailyLimitMinutes,
+                usesWeeklyLimits = false,
+                mondayLimitMinutes = dailyLimitMinutes,
+                tuesdayLimitMinutes = dailyLimitMinutes,
+                wednesdayLimitMinutes = dailyLimitMinutes,
+                thursdayLimitMinutes = dailyLimitMinutes,
+                fridayLimitMinutes = dailyLimitMinutes,
+                saturdayLimitMinutes = dailyLimitMinutes,
+                sundayLimitMinutes = dailyLimitMinutes,
                 createdAt = now,
                 updatedAt = now,
             )
         )
         return id != -1L
+    }
+
+    override suspend fun addMonitoredAppWithWeeklyLimits(
+        packageName: String,
+        appName: String,
+        weeklyLimits: WeeklyLimits,
+    ): Boolean {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val id = monitoredAppDao.insert(
+            MonitoredAppEntity(
+                packageName = packageName,
+                appName = appName,
+                dailyLimitMinutes = DEFAULT_LIMIT_MINUTES,
+                usesWeeklyLimits = true,
+                mondayLimitMinutes = weeklyLimits.monday,
+                tuesdayLimitMinutes = weeklyLimits.tuesday,
+                wednesdayLimitMinutes = weeklyLimits.wednesday,
+                thursdayLimitMinutes = weeklyLimits.thursday,
+                fridayLimitMinutes = weeklyLimits.friday,
+                saturdayLimitMinutes = weeklyLimits.saturday,
+                sundayLimitMinutes = weeklyLimits.sunday,
+                createdAt = now,
+                updatedAt = now,
+            )
+        )
+        return id != -1L
+    }
+
+    override suspend fun updateWeeklyLimits(packageName: String, weeklyLimits: WeeklyLimits) {
+        monitoredAppDao.updateWeeklyLimits(
+            packageName = packageName,
+            monday = weeklyLimits.monday,
+            tuesday = weeklyLimits.tuesday,
+            wednesday = weeklyLimits.wednesday,
+            thursday = weeklyLimits.thursday,
+            friday = weeklyLimits.friday,
+            saturday = weeklyLimits.saturday,
+            sunday = weeklyLimits.sunday,
+            updatedAt = Clock.System.now().toEpochMilliseconds(),
+        )
     }
 
     override suspend fun updateDailyLimit(packageName: String, dailyLimitMinutes: Int) {
@@ -160,5 +210,15 @@ class ScreenTimeRepositoryImpl(
             createdAt = createdAt,
             updatedAt = updatedAt,
             todayUsageSeconds = todayUsageSeconds,
+            usesWeeklyLimits = usesWeeklyLimits,
+            weeklyLimits = WeeklyLimits(
+                monday = mondayLimitMinutes,
+                tuesday = tuesdayLimitMinutes,
+                wednesday = wednesdayLimitMinutes,
+                thursday = thursdayLimitMinutes,
+                friday = fridayLimitMinutes,
+                saturday = saturdayLimitMinutes,
+                sunday = sundayLimitMinutes,
+            ),
         )
 }
