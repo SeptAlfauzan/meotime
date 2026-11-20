@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.septaalfauzan.meotime.domain.AppIconProvider
 import com.septaalfauzan.meotime.domain.InstalledAppCheck
+import com.septaalfauzan.meotime.domain.limit.effectiveLimitMinutes
 import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
@@ -66,22 +67,46 @@ data class DashboardAppRow(
     val remainingMinutes: Long,
     val progress: Float,
     val paused: Boolean,
+    /**
+     * True when the app's schedule has no limit on [today] — the weekly counterpart of a `null`
+     * daily limit, where the day exists but carries nothing to fill or deplete. A row in this
+     * state reports the honest reading "no limit today": [limitReached] stays false, because
+     * nothing was reached, and the bar stays empty.
+     */
+    val noLimitToday: Boolean,
 )
 
 /**
- * Derives one dashboard row from an app. Pure, so the limit arithmetic is unit-testable without a
- * composition and the screen stays a renderer.
+ * Derives one dashboard row from an app for [today]. Pure, so the limit arithmetic is
+ * unit-testable without a composition and the screen stays a renderer.
  *
- * A non-positive limit would make `usage / limit` NaN or Infinity, and `coerceIn` returns NaN
- * unchanged, so the divisor is guarded: a row that cannot be measured reports the limit as reached
- * with a full bar rather than rendering a broken indicator.
+ * The limit is resolved by [effectiveLimitMinutes]: a weekly app gets the value its weekday
+ * carries, and `null` when the schedule has none — that `null` is the row's
+ * [DashboardAppRow.noLimitToday] state, which the screens print as "No limit today". A non-positive
+ * limit would make `usage / limit` NaN or Infinity, and `coerceIn` returns NaN unchanged, so the
+ * divisor is guarded: a row that cannot be measured reports the limit as reached with a full bar
+ * rather than rendering a broken indicator.
  */
-internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
+internal fun dashboardRow(app: MonitoredApp, today: LocalDate): DashboardAppRow {
+    val limit = effectiveLimitMinutes(app, today)
+    if (limit == null) {
+        // A no-limit day is a real state, not an absence of one: the app is still monitored,
+        // still shown and still used — there is just nothing to fill or deplete. `limitReached`
+        // stays false rather than being laundered into the reached reading, because nothing was
+        // reached, and the bar stays empty.
+        return DashboardAppRow(
+            limitReached = false,
+            remainingMinutes = 0L,
+            progress = 0f,
+            paused = !app.enabled,
+            noLimitToday = true,
+        )
+    }
     // Converted once, here, because the limit is stored in minutes and the usage is read in
     // seconds. Doing the arithmetic across the two units would leave the ratio, the comparison
     // and the subtraction each wrong by a factor of 60 — with a row that still renders, so the
     // bug would ship looking like a design choice.
-    val limitSeconds = app.dailyLimitMinutes * 60L
+    val limitSeconds = limit * 60L
     val usage = app.todayUsageSeconds
     val measurable = limitSeconds > 0
     val paused = !app.enabled
@@ -96,6 +121,7 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
         remainingMinutes = remainingSeconds / 60,
         progress = progress,
         paused = paused,
+        noLimitToday = false,
     )
 }
 
@@ -105,16 +131,19 @@ internal fun dashboardRow(app: MonitoredApp): DashboardAppRow {
  * Extracted from the dashboard row so the two screens that report the same fact cannot drift apart:
  * a settings screen with its own copy of this mapping is how a list starts saying "3 minutes left"
  * about an app the app's own page calls "Monitoring paused". Both screens derive it from the same
- * [dashboardRow], so the wording is one function, and a test pins all five branches.
+ * [dashboardRow], so the wording is one function, and a test pins every branch.
  *
- * "Limit reached" is checked first, and stays the answer for a paused app that had already reached
- * its limit when it was paused: that is a real reading, and the usage beside it is still true.
+ * A no-limit row is named first: "No limit today" says the schedule carries nothing to fill or
+ * deplete, which is a different fact from the paused and reached readings below it. "Limit
+ * reached" stays the answer for a paused app that had already reached its limit when it was
+ * paused: that is a real reading, and the usage beside it is still true.
  *
  * [DashboardAppRow.remainingMinutes] is minute-denominated, so second-granularity storage makes a
  * sub-minute remainder floor to zero — a state that was unreachable while usage was whole minutes,
- * because zero then implied the limit had been reached and the first branch answered instead.
+ * because zero then implied the limit had been reached and the reached branch answered instead.
  */
 internal fun appStatusLabel(row: DashboardAppRow): String = when {
+    row.noLimitToday -> "No limit today"
     row.limitReached -> "Limit reached"
     row.paused -> "Monitoring paused"
     // Under the limit with less than a minute left. "0 minutes remaining" is not a thing anyone

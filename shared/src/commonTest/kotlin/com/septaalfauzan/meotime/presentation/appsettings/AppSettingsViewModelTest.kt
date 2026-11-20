@@ -7,6 +7,7 @@ import com.septaalfauzan.meotime.FakeTodayKey
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
 import com.septaalfauzan.meotime.domain.InstalledAppCheck
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import com.septaalfauzan.meotime.presentation.dashboard.appStatusLabel
 import com.septaalfauzan.meotime.presentation.dashboard.dashboardRow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.LocalDate
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -394,7 +396,7 @@ class AppSettingsViewModelTest {
         val state = newViewModel().state.value
         val app = assertNotNull(state.app)
 
-        val row = dashboardRow(app.copy(todayUsageSeconds = state.usageSeconds))
+        val row = dashboardRow(app.copy(todayUsageSeconds = state.usageSeconds), LocalDate.parse(DATE))
 
         assertTrue(row.paused)
         assertEquals("Monitoring paused", appStatusLabel(row))
@@ -673,5 +675,21 @@ class AppSettingsViewModelTest {
         val state = viewModel.state.value
         assertTrue(state.error)
         assertNotNull(state.app)
+    }
+
+    /**
+     * A weekly app whose schedule is empty on today's weekday is a real "no limit today" answer,
+     * not a failure and not a silent zero: the state resolves the app and the screen can print the
+     * words for it, so the limit reads as "no limit" rather than as a broken row.
+     */
+    @Test
+    fun proNoLimitDayShowsNoLimitToday() = runTest {
+        repository.addMonitoredAppWithWeeklyLimits(PACKAGE, LABEL, WeeklyLimits())
+
+        val state = newViewModel().state.value
+
+        assertNotNull(state.today)
+        assertEquals(0, state.limitMinutes)
+        assertTrue(state.noLimitToday)
     }
 }

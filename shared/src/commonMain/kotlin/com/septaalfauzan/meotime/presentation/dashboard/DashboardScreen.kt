@@ -48,14 +48,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.septaalfauzan.meotime.domain.limit.effectiveLimitMinutes
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.presentation.format.formatPeriodButton
 import com.septaalfauzan.meotime.presentation.format.formatPeriodSubtitle
 import com.septaalfauzan.meotime.presentation.format.formatStatDuration
 import com.septaalfauzan.meotime.presentation.format.formatUsage
+import com.septaalfauzan.meotime.presentation.limit.formatLimitMinutes
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
+import kotlinx.datetime.LocalDate
 
 /**
  * Today's monitored apps.
@@ -82,6 +85,9 @@ fun DashboardScreen(
     val state by viewModel.state.collectAsState()
     val spacing = MeotimeTokens.spacing
     val anchor = state.today ?: state.stats?.period?.start
+    // The date the rows resolve their limits against. Rows are rendered only from the branches
+    // below, so a row never computes against a state that claims to be resolved without a date.
+    val today = state.today
     var showPicker by remember { mutableStateOf(false) }
 
     Column(
@@ -120,7 +126,7 @@ fun DashboardScreen(
         Spacer(Modifier.height(spacing.md))
 
         when {
-            state.loading -> DashboardSkeleton(modifier = Modifier.weight(1f))
+            state.loading || today == null -> DashboardSkeleton(modifier = Modifier.weight(1f))
             state.error -> DashboardError(onRetry = viewModel::refresh)
             state.apps.isEmpty() -> DashboardEmpty(onAddApp = onAddApp)
             else -> MonitoredAppList(
@@ -128,12 +134,13 @@ fun DashboardScreen(
                 icons = state.appIcons,
                 statsFilter = state.statsFilter,
                 appUsage = state.stats?.appUsage.orEmpty(),
+                today = today,
                 onOpenApp = onOpenApp,
                 modifier = Modifier.weight(1f),
             )
         }
 
-        if (!state.loading && !state.error && state.apps.isNotEmpty()) {
+        if (!state.loading && today != null && !state.error && state.apps.isNotEmpty()) {
             Spacer(Modifier.height(spacing.md))
             MeotimeButton(onClick = onAddApp, modifier = Modifier.fillMaxWidth()) {
                 Text("Add app")
@@ -207,6 +214,7 @@ private fun MonitoredAppList(
     icons: Map<String, ImageBitmap>,
     statsFilter: StatsFilter,
     appUsage: Map<String, AppUsageSummary>,
+    today: LocalDate,
     onOpenApp: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -217,6 +225,7 @@ private fun MonitoredAppList(
         items(apps, key = { it.packageName }) { app ->
             MonitoredAppRow(
                 app = app,
+                today = today,
                 appIcon = icons[app.packageName],
                 statsFilter = statsFilter,
                 usage = appUsage[app.packageName],
@@ -236,18 +245,24 @@ private fun MonitoredAppList(
  * the app was paused still reads "Limit reached", because that is a real reading and the usage
  * line beside it is still true. The wording itself is [appStatusLabel], shared with the app's own
  * settings screen so the two can never describe the same row differently.
+ *
+ * A weekly app's single-day line shows the limit its weekday carries (`formatLimitMinutes`) rather
+ * than the stored daily limit; on a day the schedule is empty there it shows only the usage, and
+ * the status line underneath says "No limit today".
  */
 @Composable
 private fun MonitoredAppRow(
     app: MonitoredApp,
+    today: LocalDate,
     appIcon: ImageBitmap?,
     statsFilter: StatsFilter,
     usage: AppUsageSummary?,
     onClick: () -> Unit,
 ) {
-    val row = dashboardRow(app)
+    val row = dashboardRow(app, today)
     val range = statsFilter is StatsFilter.DateRange
     val rangeRow = if (range) dashboardRangeRow(app, usage) else null
+    val effectiveLimit = effectiveLimitMinutes(app, today)
     val spacing = MeotimeTokens.spacing
 
     Surface(
@@ -283,7 +298,17 @@ private fun MonitoredAppRow(
                     if (range) {
                         "${formatStatDuration(usage?.totalSeconds ?: 0L)} total"
                     } else {
-                        "${formatUsage(app.todayUsageSeconds)} / ${app.dailyLimitMinutes} min"
+                        when {
+                            // Free rows keep the stored daily limit beside the usage, exactly as
+                            // they have always printed it.
+                            !app.usesWeeklyLimits -> "${formatUsage(app.todayUsageSeconds)} / ${app.dailyLimitMinutes} min"
+                            // A weekly row with a limit shows the value its weekday carries, so the
+                            // two screens that print limits say the same number.
+                            effectiveLimit != null -> "${formatUsage(app.todayUsageSeconds)} / ${formatLimitMinutes(effectiveLimit)} min"
+                            // A weekly row on a day the schedule leaves unlimited says only the
+                            // usage; the status line under it carries the "No limit today" reading.
+                            else -> formatUsage(app.todayUsageSeconds)
+                        }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -415,13 +440,21 @@ internal data class DashboardRangeRow(
 
 internal fun dashboardRangeRow(app: MonitoredApp, usage: AppUsageSummary?): DashboardRangeRow {
     val average = usage?.dailyAverageSeconds ?: 0L
+    // A weekly app's range row speaks about the week: the average, and nothing about a daily
+    // budget — the `· limit N min` copy and its progress arithmetic are the Free row's.
+    val isWeekly = app.usesWeeklyLimits
     val limitSeconds = app.dailyLimitMinutes * 60L
     val progress = when {
         !app.enabled -> 0f
+        isWeekly -> 0f
         limitSeconds <= 0L -> 1f
         else -> (average.toFloat() / limitSeconds.toFloat()).coerceIn(0f, 1f)
     }
-    val copy = "${formatStatDuration(average)} per day on average · limit ${app.dailyLimitMinutes} min"
+    val copy = if (isWeekly) {
+        "${formatStatDuration(average)} per day on average"
+    } else {
+        "${formatStatDuration(average)} per day on average · limit ${app.dailyLimitMinutes} min"
+    }
     return DashboardRangeRow(
         progress = progress,
         status = if (app.enabled) copy else "Monitoring paused · $copy",
