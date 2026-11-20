@@ -257,6 +257,23 @@ class WeeklyLimitViewModelTest {
     }
 
     /**
+     * Final review #3: a wheel combination can compute beyond the stored ceiling (from a 24:00
+     * position, tapping a minute yields 1499). The single writer clamps before the value is shown
+     * or persisted, at both ends of the range.
+     */
+    @Test
+    fun setPickerMinutesClampsTheWheelPositionToTheStoredRange() {
+        val viewModel = newViewModel()
+        viewModel.openDayPicker(DayOfWeek.MONDAY)
+
+        viewModel.setPickerMinutes(1499)
+        assertEquals(1440, viewModel.state.value.pickerMinutes)
+
+        viewModel.setPickerMinutes(-5)
+        assertEquals(0, viewModel.state.value.pickerMinutes)
+    }
+
+    /**
      * Review Focus #4: the ghost remove on the all-days picker leaves a real all-null schedule
      * with the weekly marker on — "no limit on any day" is a schedule, not the absence of one.
      */

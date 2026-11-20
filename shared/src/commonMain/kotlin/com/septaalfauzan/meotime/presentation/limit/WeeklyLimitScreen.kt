@@ -141,6 +141,16 @@ private fun WeeklyLimitEditor(
         Spacer(Modifier.height(spacing.lg))
 
         when {
+            // A failed write must be reported before the "already monitored" fact: the row can
+            // exist and the write still have failed, and hiding the failure claims success.
+            state.saveFailed -> {
+                SetLimitNotice(
+                    label = "Not saved",
+                    message = "Meotime couldn't save this week's limits. Nothing was changed — try again.",
+                )
+                Spacer(Modifier.height(spacing.sm))
+            }
+
             state.alreadyMonitored -> {
                 SetLimitNotice(
                     label = "Already monitored",
@@ -164,14 +174,6 @@ private fun WeeklyLimitEditor(
                 ) {
                     Text("Back to my apps")
                 }
-            }
-
-            state.saveFailed -> {
-                SetLimitNotice(
-                    label = "Not saved",
-                    message = "Meotime couldn't save this week's limits. Nothing was changed — try again.",
-                )
-                Spacer(Modifier.height(spacing.sm))
             }
         }
 

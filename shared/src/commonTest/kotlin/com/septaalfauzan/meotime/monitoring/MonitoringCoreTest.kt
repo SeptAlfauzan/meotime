@@ -3,6 +3,8 @@
 package com.septaalfauzan.meotime
 
 import com.septaalfauzan.meotime.data.local.TodayKey
+import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import com.septaalfauzan.meotime.monitoring.MonitoringCore
 import com.septaalfauzan.meotime.monitoring.MonotonicClock
@@ -13,6 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +38,23 @@ class FakeTodayKey(private val date: String) : TodayKey {
 class MutableFakeTodayKey(var date: String) : TodayKey {
     override fun todayIso(): String = date
     override fun dateFlow(): Flow<String> = MutableStateFlow(date)
+}
+
+/**
+ * Parks the rollover's re-read of [packageName] on [gate], so a foreground switch can land while
+ * createSession is suspended. Other packages pass straight through.
+ */
+private class GatedRolloverReadRepository(
+    private val delegate: ScreenTimeRepository,
+    private val packageName: String,
+) : ScreenTimeRepository by delegate {
+    var armed = false
+    val gate = CompletableDeferred<Unit>()
+
+    override suspend fun getMonitoredApp(packageName: String): MonitoredApp? {
+        if (armed && packageName == this@GatedRolloverReadRepository.packageName) gate.await()
+        return delegate.getMonitoredApp(packageName)
+    }
 }
 
 private const val INSTAGRAM = "com.instagram.android"
@@ -64,7 +84,7 @@ class MonitoringCoreTest {
     }
 
     private fun TestScope.core(
-        repository: FakeRepository,
+        repository: ScreenTimeRepository,
         todayKey: TodayKey = today,
         onSessionChanged: ((SessionSnapshot?) -> Unit)? = null,
     ) = MonitoringCore(
@@ -476,6 +496,40 @@ class MonitoringCoreTest {
         advanceTimeBy(2 * 60 * 60_000L)
         runCurrent()
         assertTrue(decisions.isEmpty(), "Tuesday's lack of a rule must not leak back to Monday's")
+    }
+
+    /**
+     * Final review #2: createSession suspends on repository reads during rollover. If another
+     * app's foreground switch claims the slot in that window, the rollover must not revive the old
+     * app or start a second ticker over the new session.
+     */
+    @Test
+    fun foregroundSwitchDuringMidnightRolloverIsNotOverwritten() = runTest {
+        val key = MutableFakeTodayKey("2026-09-28") // Monday
+        val delegate = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits(monday = 30))
+            addMonitoredAppBlocking(YOUTUBE, "YouTube", 30)
+        }
+        val repo = GatedRolloverReadRepository(delegate, INSTAGRAM)
+        val seen = mutableListOf<SessionSnapshot?>()
+        val core = core(repo, todayKey = key, onSessionChanged = { seen += it })
+
+        core.onForegroundChange(INSTAGRAM)
+        advanceTimeBy(60_000L)
+        key.date = "2026-09-29" // Tuesday
+        repo.armed = true
+
+        advanceTimeBy(1_000L)
+        runCurrent() // rollover reaches createSession and parks on the gate
+
+        core.onForegroundChange(YOUTUBE) // another app claims the slot during the suspension
+
+        repo.gate.complete(Unit)
+        runCurrent()
+
+        assertEquals(YOUTUBE, seen.last()!!.packageName)
+        assertNotNull(core.activeTick)
+        assertTrue(decisions.isEmpty())
     }
 
     @Test

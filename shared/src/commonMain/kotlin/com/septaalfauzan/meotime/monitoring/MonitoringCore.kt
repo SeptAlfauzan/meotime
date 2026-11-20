@@ -229,6 +229,10 @@ class MonitoringCore(
                     tickJob = null
                     closeCurrentSession(now)
                     val reopened = createSession(session.packageName, now)
+                    // createSession suspends on repository reads. A foreground switch for another
+                    // package may have claimed the free slot meanwhile: leave that session alone
+                    // instead of reviving the old app and starting a second ticker over it.
+                    if (currentSession != null) return@launch
                     if (reopened != null) {
                         currentSession = reopened
                         onSessionChanged?.invoke(reopened.toSnapshot())

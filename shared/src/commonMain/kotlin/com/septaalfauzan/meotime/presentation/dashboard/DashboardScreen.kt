@@ -443,12 +443,12 @@ internal fun dashboardRangeRow(app: MonitoredApp, usage: AppUsageSummary?): Dash
     // A weekly app's range row speaks about the week: the average, and nothing about a daily
     // budget — the `· limit N min` copy and its progress arithmetic are the Free row's.
     val isWeekly = app.usesWeeklyLimits
-    val limitSeconds = app.dailyLimitMinutes * 60L
+    // The daily budget exists only for the Free row; a weekly row short-circuits to 0f above it.
     val progress = when {
         !app.enabled -> 0f
         isWeekly -> 0f
-        limitSeconds <= 0L -> 1f
-        else -> (average.toFloat() / limitSeconds.toFloat()).coerceIn(0f, 1f)
+        app.dailyLimitMinutes <= 0 -> 1f
+        else -> (average.toFloat() / (app.dailyLimitMinutes * 60L).toFloat()).coerceIn(0f, 1f)
     }
     val copy = if (isWeekly) {
         "${formatStatDuration(average)} per day on average"

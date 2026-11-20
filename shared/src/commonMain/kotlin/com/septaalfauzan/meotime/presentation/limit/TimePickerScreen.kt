@@ -32,13 +32,13 @@ import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
 
 /**
  * The picker the week editor shows while [WeeklyLimitUiState.picker] is non-null: the title
- * names the day or "All days", the wheels set the duration in hours and minutes, the circular
- * presets are the common values, and the ghost action is the remove.
+ * names the day or "All days", the wheels set the duration in hours and minutes, the preset
+ * chips are the common values, and the ghost action is the remove.
  *
  * `pickerMinutes` is the wheel position — the total in minutes. The hour wheel selects the hour
  * component and the minute wheel the minute component; a wheel tap routes through
- * [WeeklyLimitViewModel.setPickerMinutes], the only writer of the position. The wheels are built
- * so the position can never leave the 0..1440 range.
+ * [WeeklyLimitViewModel.setPickerMinutes], the only writer of the position, which coerces the
+ * value into the 0..1440 range even when a wheel combination would exceed it.
  */
 @Composable
 fun TimePickerScreen(
@@ -130,7 +130,7 @@ fun TimePickerScreen(
     }
 }
 
-/** One circular preset chip. */
+/** One preset chip. */
 @Composable
 private fun TimePreset(label: String, onClick: () -> Unit) {
     MeotimeOutlinedButton(

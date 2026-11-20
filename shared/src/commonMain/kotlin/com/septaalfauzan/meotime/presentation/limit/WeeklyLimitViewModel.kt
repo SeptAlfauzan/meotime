@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.septaalfauzan.meotime.domain.InstalledAppsProvider
 import com.septaalfauzan.meotime.domain.limit.DEFAULT_LIMIT_MINUTES
+import com.septaalfauzan.meotime.domain.limit.MAX_LIMIT_MINUTES
 import com.septaalfauzan.meotime.domain.limit.clampLimitMinutes
 import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
@@ -199,9 +200,9 @@ class WeeklyLimitViewModel(
         _state.update { current -> current.copy(picker = PickerTarget.AllDays, pickerMinutes = current.allDaysPickerMinutes()) }
     }
 
-    /** Writes the wheel position; wheels are capped at 0..1440 by the picker's own construction. */
+    /** Writes the wheel position, coerced to the 0..MAX_LIMIT_MINUTES range the wheels display. */
     fun setPickerMinutes(value: Int) {
-        _state.update { it.copy(pickerMinutes = value) }
+        _state.update { it.copy(pickerMinutes = value.coerceIn(0, MAX_LIMIT_MINUTES)) }
     }
 
     /**
@@ -276,8 +277,10 @@ class WeeklyLimitViewModel(
      */
     fun save(onDone: () -> Unit) {
         val snapshot = _state.value
-        val packageName = snapshot.packageName
-        if (!snapshot.canSave || packageName == null) return
+        // canSave already requires a package; the Elvis just gives Kotlin the non-null value it
+        // needs for write() without restating the same condition.
+        val packageName = snapshot.packageName ?: return
+        if (!snapshot.canSave) return
         _state.update { it.copy(saving = true, saveFailed = false, saveConflict = false) }
         viewModelScope.launch {
             when (val outcome = write(snapshot, packageName)) {
@@ -300,8 +303,8 @@ class WeeklyLimitViewModel(
      *
      * The two write shapes are kept apart because only the insert can be *refused*. The update
      * re-reads afterwards, and the read answers whether the write landed: a row that is *absent*
-     * means the update matched nothing ([SaveOutcome.FAILED_ROW_GONE]); a row that is *present
-     * with another schedule* means the write lost a race it cannot prove it won ([SaveOutcome.FAILED]).
+     * means the update matched nothing ([WeeklySaveOutcome.FAILED_ROW_GONE]); a row that is *present
+     * with another schedule* means the write lost a race it cannot prove it won ([WeeklySaveOutcome.FAILED]).
      */
     private suspend fun write(snapshot: WeeklyLimitUiState, packageName: String): WeeklySaveOutcome = try {
         if (snapshot.alreadyMonitored) {

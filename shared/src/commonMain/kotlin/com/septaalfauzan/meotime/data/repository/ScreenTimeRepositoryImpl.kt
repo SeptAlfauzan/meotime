@@ -8,9 +8,9 @@ import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.data.local.entity.DailyUsageEntity
 import com.septaalfauzan.meotime.data.local.entity.MonitoredAppEntity
 import com.septaalfauzan.meotime.data.local.entity.SyncStateEntity
+import com.septaalfauzan.meotime.domain.limit.DEFAULT_LIMIT_MINUTES
 import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
 import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
-import com.septaalfauzan.meotime.domain.limit.DEFAULT_LIMIT_MINUTES
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
 import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import kotlinx.datetime.LocalDate
