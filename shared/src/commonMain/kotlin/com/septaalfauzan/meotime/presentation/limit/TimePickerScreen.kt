@@ -62,9 +62,7 @@ fun TimePickerScreen(
     val minutes = state.pickerMinutes % 60
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(spacing.screen),
+        modifier = modifier.fillMaxSize()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MeotimeOutlinedButton(

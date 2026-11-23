@@ -3,6 +3,7 @@ package com.septaalfauzan.meotime.presentation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -18,6 +19,7 @@ import com.septaalfauzan.meotime.domain.PermissionNavigator
 import com.septaalfauzan.meotime.domain.PermissionStatusProvider
 import com.septaalfauzan.meotime.domain.useCase.MeotimeUseCases
 import com.septaalfauzan.meotime.presentation.navigation.AppNavHost
+import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
 import com.septaalfauzan.meotime.presentation.theme.MonochromeTheme
 
 /**
@@ -87,7 +89,8 @@ val LocalDependencies = staticCompositionLocalOf<MeotimeAppDependencies> {
  * transparent and the *platform window* is what the user sees — which stays light on a light
  * Android theme no matter what the Compose scheme says, i.e. near-white text on a white window in
  * dark mode. `safeContentPadding` insets the content only; the fill deliberately covers the insets
- * too, so a gesture bar never exposes the window underneath.
+ * too, so a gesture bar never exposes the window underneath. The root also owns the 24dp
+ * screen gutter for every destination, so no screen below it declares one.
  */
 @Composable
 fun App(dependencies: MeotimeAppDependencies) {
@@ -97,7 +100,8 @@ fun App(dependencies: MeotimeAppDependencies) {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
-                    .safeContentPadding(),
+                    .safeContentPadding()
+                    .padding(MeotimeTokens.spacing.screen),
             ) {
                 AppNavHost()
             }

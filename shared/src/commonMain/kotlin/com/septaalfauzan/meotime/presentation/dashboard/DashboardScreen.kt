@@ -91,9 +91,7 @@ fun DashboardScreen(
     var showPicker by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(spacing.screen),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {

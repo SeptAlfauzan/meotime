@@ -71,9 +71,7 @@ fun AddAppScreen(
     val spacing = MeotimeTokens.spacing
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(spacing.screen),
+        modifier = modifier.fillMaxSize(),
     ) {
         Text("Add an app", style = MaterialTheme.typography.titleLarge)
         Text(

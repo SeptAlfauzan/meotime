@@ -99,9 +99,7 @@ fun AppSettingsScreen(
     }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(spacing.screen),
+        modifier = modifier.fillMaxSize(),
     ) {
         val app = state.app
         when {

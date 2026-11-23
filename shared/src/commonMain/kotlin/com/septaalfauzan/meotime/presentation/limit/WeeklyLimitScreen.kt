@@ -56,9 +56,7 @@ fun WeeklyLimitScreen(
     val spacing = MeotimeTokens.spacing
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(spacing.screen),
+        modifier = modifier.fillMaxSize(),
     ) {
         when {
             state.missingArgument -> SetLimitMissingArgument(onClose = onClose)
