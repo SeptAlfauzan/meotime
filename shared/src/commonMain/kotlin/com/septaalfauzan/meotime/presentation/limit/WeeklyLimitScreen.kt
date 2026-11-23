@@ -34,7 +34,6 @@ import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
 import kotlinx.datetime.DayOfWeek
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.ui.draw.alpha
 
 /**
  * The Pro week editor: the Quick set chips, the seven rows (a Switch per day, and the day's time
@@ -235,26 +234,25 @@ private fun WeeklyLimitDayRow(
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.End) {
-            if (limited) {
-                Text(formatLimitMinutes(state.draft.forDay(day) ?: DEFAULT_LIMIT_MINUTES))
-                IconButton(
-                    onClick = { viewModel.openDayPicker(day) },
-                    enabled = editing,
-                ) {
-                    Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Arrow")
-                }
-            } else {
-                Text(
-                    "No limit",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "Arrow",
-                    modifier = Modifier.alpha(0.3f)
-                )
+        Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (limited) {
+                    formatLimitMinutes(state.draft.forDay(day) ?: DEFAULT_LIMIT_MINUTES)
+                } else {
+                    "No limit"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (limited) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            IconButton(
+                onClick = { viewModel.openDayPicker(day) },
+                enabled = editing && limited,
+            ) {
+                Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Arrow")
             }
         }
     }
