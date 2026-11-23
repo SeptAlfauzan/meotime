@@ -2,7 +2,6 @@ package com.septaalfauzan.meotime
 
 import android.content.Context
 import android.os.SystemClock
-import com.septaalfauzan.meotime.BuildConfig
 import com.septaalfauzan.meotime.apps.AppIconProviderAndroid
 import com.septaalfauzan.meotime.apps.AppLabelResolver
 import com.septaalfauzan.meotime.apps.InstalledAppsProviderAndroid

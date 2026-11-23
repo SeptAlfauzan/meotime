@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,12 +24,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
+import com.septaalfauzan.meotime.presentation.theme.MeotimeTypography
 
 /**
  * The picker the week editor shows while [WeeklyLimitUiState.picker] is non-null: the title
@@ -80,7 +83,7 @@ fun TimePickerScreen(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(spacing.md),
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             WheelColumn(
@@ -88,27 +91,29 @@ fun TimePickerScreen(
                 selected = hours,
                 label = "Hours",
                 onSelect = { hour -> viewModel.setPickerMinutes(hour * 60 + minutes) },
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(spacing.md))
+            Text(":", style = MeotimeTypography.displayLarge)
             WheelColumn(
                 count = 60,
                 selected = minutes,
                 label = "Minutes",
                 onSelect = { minute -> viewModel.setPickerMinutes((state.pickerMinutes / 60) * 60 + minute) },
+                modifier = Modifier.weight(1f),
             )
         }
         Spacer(Modifier.height(spacing.md))
-
-        Row(
+        Text("Preset time")
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
             TimePreset("30 min") { viewModel.setPickerMinutes(30) }
             TimePreset("1 hr") { viewModel.setPickerMinutes(60) }
             TimePreset("2 hr") { viewModel.setPickerMinutes(120) }
         }
         Spacer(Modifier.height(spacing.lg))
-
         MeotimeButton(
             onClick = viewModel::confirmPicker,
             modifier = Modifier.fillMaxWidth(),
@@ -190,11 +195,7 @@ private fun WheelColumn(
                     ) {
                         Text(
                             value.toString().padStart(2, '0'),
-                            style = if (value == selected) {
-                                MaterialTheme.typography.titleMedium
-                            } else {
-                                MaterialTheme.typography.bodyMedium
-                            },
+                            style = MeotimeTypography.displayMedium.copy(fontWeight = if(value == selected) FontWeight.Medium else FontWeight.Normal),
                             color = if (value == selected) {
                                 MaterialTheme.colorScheme.primary
                             } else {

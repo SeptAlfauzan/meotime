@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -30,6 +32,9 @@ import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
 import kotlinx.datetime.DayOfWeek
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.ui.draw.alpha
 
 /**
  * The Pro week editor: the Quick set chips, the seven rows (a Switch per day, and the day's time
@@ -62,7 +67,11 @@ fun WeeklyLimitScreen(
             state.missingArgument -> SetLimitMissingArgument(onClose = onClose)
             state.loading -> SetLimitSkeleton()
             state.error -> SetLimitReadError(onRetry = viewModel::retry)
-            state.picker != null -> TimePickerScreen(viewModel = viewModel, onBack = viewModel::closePicker)
+            state.picker != null -> TimePickerScreen(
+                viewModel = viewModel,
+                onBack = viewModel::closePicker
+            )
+
             else -> WeeklyLimitEditor(
                 state = state,
                 viewModel = viewModel,
@@ -103,7 +112,11 @@ private fun WeeklyLimitEditor(
         )
         Spacer(Modifier.height(spacing.lg))
 
-        Text("Quick set", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "Quick set",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(spacing.sm))
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
@@ -130,9 +143,14 @@ private fun WeeklyLimitEditor(
         val daysLabel = if (state.limitedDays == 1) "day" else "days"
         Text(
             "Tap a time to change it. ${state.limitedDays} $daysLabel limited, " +
-                // The weekly total is read through the opt-in day-aware rendering so a total
-                // over a day reads as days ("1 day 4 hours"), not as a clamped "24 hours".
-                "weekly total ${formatUsage(state.weeklyTotalMinutes * 60L, includeDays = true)}.",
+                    // The weekly total is read through the opt-in day-aware rendering so a total
+                    // over a day reads as days ("1 day 4 hours"), not as a clamped "24 hours".
+                    "weekly total ${
+                        formatUsage(
+                            state.weeklyTotalMinutes * 60L,
+                            includeDays = true
+                        )
+                    }.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -161,7 +179,7 @@ private fun WeeklyLimitEditor(
                 SetLimitNotice(
                     label = "Not saved",
                     message = "${state.appName} was added to your list somewhere else, so Meotime left its " +
-                        "limits alone. Go to your apps to change them from there.",
+                            "limits alone. Go to your apps to change them from there.",
                 )
                 Spacer(Modifier.height(spacing.sm))
                 MeotimeOutlinedButton(
@@ -202,31 +220,40 @@ private fun WeeklyLimitDayRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(with(WeeklyLimits) { day.displayName() }, style = MaterialTheme.typography.bodyMedium)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = limited,
-                onCheckedChange = { viewModel.setDayEnabled(day, it) },
-                enabled = editing,
-                modifier = Modifier.size(48.dp),
-            )
-            Spacer(Modifier.width(spacing.sm))
+        Switch(
+            checked = limited,
+            onCheckedChange = { viewModel.setDayEnabled(day, it) },
+            enabled = editing,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(Modifier.width(spacing.sm))
+        Text(
+            with(WeeklyLimits) { day.displayName() },
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.End) {
             if (limited) {
-                MeotimeOutlinedButton(
+                Text(formatLimitMinutes(state.draft.forDay(day) ?: DEFAULT_LIMIT_MINUTES))
+                IconButton(
                     onClick = { viewModel.openDayPicker(day) },
                     enabled = editing,
-                    contentPadding = MeotimeTokens.controls.textButtonContentPadding,
                 ) {
-                    Text(formatLimitMinutes(state.draft.forDay(day) ?: DEFAULT_LIMIT_MINUTES))
+                    Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Arrow")
                 }
             } else {
                 Text(
                     "No limit",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "Arrow",
+                    modifier = Modifier.alpha(0.3f)
                 )
             }
         }

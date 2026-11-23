@@ -49,6 +49,7 @@ kotlin {
             implementation(libs.sqliteFramework)
         }
         commonMain.dependencies {
+            implementation(libs.material.icons.extended)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
