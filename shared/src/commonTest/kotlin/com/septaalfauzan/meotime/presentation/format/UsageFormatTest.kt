@@ -1,5 +1,6 @@
 package com.septaalfauzan.meotime
 
+import com.septaalfauzan.meotime.presentation.format.formatOverlayDuration
 import com.septaalfauzan.meotime.presentation.format.formatShortDuration
 import com.septaalfauzan.meotime.presentation.format.formatUsage
 import kotlin.test.Test
@@ -49,6 +50,17 @@ class UsageFormatTest {
     @Test
     fun floorsNegativeReadingsAtZero() {
         assertEquals("0 sec", formatUsage(-5L))
+    }
+
+    @Test
+    fun overlayDurationUsesReferenceHourWords() {
+        assertEquals("45 sec", formatOverlayDuration(45L))
+        assertEquals("5 min", formatOverlayDuration(300L))
+        assertEquals("42 min", formatOverlayDuration(2_520L))
+        assertEquals("1 hr", formatOverlayDuration(3_600L))
+        assertEquals("1 hr 1 min", formatOverlayDuration(3_660L))
+        assertEquals("2 hrs 30 min", formatOverlayDuration(9_000L))
+        assertEquals("0 sec", formatOverlayDuration(-5L))
     }
 
     @Test

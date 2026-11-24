@@ -47,6 +47,28 @@ fun formatUsage(seconds: Long, includeDays: Boolean = false): String {
 }
 
 /**
+ * The overlay headline's rendering of a duration, matching the reference boards' vocabulary:
+ * whole hours are `hr`/`hrs` rather than [formatUsage]'s `hour`/`hours`.
+ *
+ * Everything else is the same reading as [formatUsage]: seconds appear only below a minute,
+ * negative readings floor at zero, and a day that overran its limit is never clamped back to 24
+ * hours. Only the hour words differ, because the overlay is the one surface copying the boards.
+ */
+fun formatOverlayDuration(seconds: Long): String {
+    val total = seconds.coerceAtLeast(0L)
+    if (total < 60L) return "$total sec"
+    val minutes = total / 60
+    val hours = minutes / 60
+    val restMinutes = minutes % 60
+    val hourLabel = if (hours == 1L) "hr" else "hrs"
+    return when {
+        hours == 0L -> "$minutes min"
+        restMinutes == 0L -> "$hours $hourLabel"
+        else -> "$hours $hourLabel $restMinutes min"
+    }
+}
+
+/**
  * A duration small enough to sit in a persistent notification, where a full sentence-width label
  * would be truncated by the shade.
  *

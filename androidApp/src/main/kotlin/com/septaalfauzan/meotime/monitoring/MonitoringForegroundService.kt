@@ -157,6 +157,10 @@ class MonitoringForegroundService : Service() {
         } else {
             startForeground(AndroidNotifier.NOTIFICATION_ID, notification)
         }
+        // Re-open the teardown gate before the core can emit another decision. A prior onDestroy
+        // in this process may have dropped an in-flight tracker decision; this start must be able
+        // to show the pill again.
+        appContainer.resumeTracking()
         appContainer.core.attach()
         registerScreenReceiver()
         if (screenOn) startPolling()
@@ -169,10 +173,13 @@ class MonitoringForegroundService : Service() {
     override fun onDestroy() {
         stopPolling()
         unregisterScreenReceiver()
-        // Order matters, and both calls are synchronous. detach() stops the ticker before it
-        // returns, so no tick can fire between here and the view being removed. Closing the
-        // session instead would queue a coroutine and leave that race open.
+        // Order matters. detach() cancels the core ticker before returning. stopTracking() then
+        // closes the gate, so a foreground change suspended in the repository cannot resume and
+        // emit an open after teardown, and posts the controller hide on plain Main behind any open
+        // already queued there. dismiss() removes the blocker inline; the queued hide then removes
+        // the pill, and no frame can follow it.
         container?.core?.detach()
+        container?.stopTracking()
         container?.overlayManager?.dismiss()
         container = null
         super.onDestroy()
