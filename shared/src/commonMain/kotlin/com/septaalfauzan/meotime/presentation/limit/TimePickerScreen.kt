@@ -1,11 +1,14 @@
 package com.septaalfauzan.meotime.presentation.limit
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,25 +16,66 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTypography
+
+internal fun wheelCenteredIndex(
+    firstVisibleIndex: Int,
+    scrollOffsetPx: Int,
+    rowHeightPx: Float,
+): Int = firstVisibleIndex + ((scrollOffsetPx + rowHeightPx / 2f) / rowHeightPx).toInt()
+
+internal fun wheelValue(index: Int, count: Int): Int = index % count
+
+internal fun wheelCenteredValue(
+    firstVisibleIndex: Int,
+    scrollOffsetPx: Int,
+    rowHeightPx: Float,
+    count: Int,
+): Int = wheelValue(wheelCenteredIndex(firstVisibleIndex, scrollOffsetPx, rowHeightPx), count)
+
+/** Visible wheel values as [top, center, bottom] for the three-row band. */
+internal fun wheelVisibleValues(
+    firstVisibleIndex: Int,
+    scrollOffsetPx: Int,
+    rowHeightPx: Float,
+    count: Int,
+): List<Int> {
+    val centered = wheelCenteredIndex(firstVisibleIndex, scrollOffsetPx, rowHeightPx)
+    return listOf(
+        wheelValue(centered - 1, count),
+        wheelValue(centered, count),
+        wheelValue(centered + 1, count),
+    )
+}
 
 /**
  * The picker the week editor shows while [WeeklyLimitUiState.picker] is non-null: the title
@@ -146,10 +190,10 @@ private fun TimePreset(label: String, onClick: () -> Unit) {
 }
 
 /**
- * One wheel column: the values scroll vertically inside a three-row band, the band's centre is
- * the selection, and the selected value is emphasised. A tap on a value routes through
- * [onSelect]; the column auto-scrolls the selection under the band while the value changes.
+ * One wheel column: values scroll vertically in a three-row band; the row under the band centre
+ * is the selection; the list loops end-to-start; tap animates a row to the centre.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WheelColumn(
     count: Int,
@@ -161,17 +205,60 @@ private fun WheelColumn(
     val spacing = MeotimeTokens.spacing
     val rowHeight = 64.dp
     val windowHeight = Dp(rowHeight.value * 3f)
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = count + selected)
+    val coroutineScope = rememberCoroutineScope()
+    var suppressSelection by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { rowHeight.toPx() }
+    val currentOnSelect by rememberUpdatedState(onSelect)
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .map { (first, offset) -> wheelCenteredIndex(first, offset, rowHeightPx) }
+            .distinctUntilChanged()
+            .collect { centered ->
+                if (!suppressSelection) {
+                    currentOnSelect(wheelValue(centered, count))
+                }
+            }
+    }
 
     LaunchedEffect(selected) {
-        // Centre the selected value under the band.
-        val target = (selected * rowHeight.value + rowHeight.value / 2 - windowHeight.value / 2).toInt()
-        scrollState.animateScrollTo(target.coerceIn(0, (count * rowHeight.value - windowHeight.value).toInt()))
+        val centered = wheelCenteredIndex(
+            listState.firstVisibleItemIndex,
+            listState.firstVisibleItemScrollOffset,
+            rowHeightPx,
+        )
+        if (wheelValue(centered, count) == selected) return@LaunchedEffect
+        suppressSelection = true
+        try {
+            listState.animateScrollToItem(count + selected)
+        } finally {
+            suppressSelection = false
+        }
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .filter { !it }
+            .collect {
+                val centered = wheelCenteredIndex(
+                    listState.firstVisibleItemIndex,
+                    listState.firstVisibleItemScrollOffset,
+                    rowHeightPx,
+                )
+                if (centered < count) {
+                    listState.scrollToItem(centered + count)
+                } else if (centered >= 2 * count) {
+                    listState.scrollToItem(centered - count)
+                }
+            }
     }
 
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(spacing.sm))
+
         Box(
             Modifier
                 .fillMaxWidth()
@@ -180,22 +267,36 @@ private fun WheelColumn(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState),
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(vertical = rowHeight),
+                flingBehavior = rememberSnapFlingBehavior(listState),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                repeat(count) { value ->
+                items(3 * count) { absoluteIndex ->
+                    val value = wheelValue(absoluteIndex, count)
                     Box(
                         Modifier
                             .height(rowHeight)
-                            .clickable { onSelect(value) },
+                            .clickable {
+                                coroutineScope.launch {
+                                    suppressSelection = true
+                                    try {
+                                        listState.animateScrollToItem(count + value)
+                                        currentOnSelect(value)
+                                    } finally {
+                                        suppressSelection = false
+                                    }
+                                }
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             value.toString().padStart(2, '0'),
-                            style = MeotimeTypography.displayMedium.copy(fontWeight = if(value == selected) FontWeight.Medium else FontWeight.Normal),
+                            style = MeotimeTypography.displayMedium.copy(
+                                fontWeight = if (value == selected) FontWeight.Medium else FontWeight.Normal,
+                            ),
                             color = if (value == selected) {
                                 MaterialTheme.colorScheme.primary
                             } else {
