@@ -141,10 +141,7 @@ private fun OnboardingPageLayout(
                 .widthIn(max = 480.dp)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(
-                    horizontal = MeotimeTokens.spacing.screen,
-                    vertical = MeotimeTokens.spacing.lg,
-                ),
+                .padding(vertical = MeotimeTokens.spacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             OnboardingIllustration(illustration)

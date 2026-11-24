@@ -13,6 +13,7 @@ composeMultiplatform = "1.12.1"
 junit = "4.13.2"
 kotlin = "2.4.20"
 material3 = "1.12.0-alpha03"
+materialIconsExtended = "1.7.3"
 room = "2.8.5"
 ksp = "2.3.11"
 sqliteBundled = "2.6.2"
@@ -48,6 +49,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
 compottie = { module = "io.github.alexzhirkevich:compottie", version.ref = "compottie" }
+material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "materialIconsExtended" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 sqliteFramework = { module = "androidx.sqlite:sqlite-framework", version.ref = "sqliteBundled" }
 

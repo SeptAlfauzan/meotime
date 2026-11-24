@@ -138,10 +138,7 @@ private fun OnboardingControls(
         modifier = Modifier
             .widthIn(max = 480.dp)
             .fillMaxWidth()
-            .padding(
-                horizontal = MeotimeTokens.spacing.screen,
-                vertical = MeotimeTokens.spacing.lg,
-            ),
+            .padding(vertical = MeotimeTokens.spacing.lg),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         OnboardingPageIndicator(

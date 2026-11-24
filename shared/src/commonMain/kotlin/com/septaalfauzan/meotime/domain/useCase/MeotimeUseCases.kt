@@ -5,6 +5,7 @@ import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
 import com.septaalfauzan.meotime.domain.model.DailyUsagePoint
 import com.septaalfauzan.meotime.domain.model.HourlyUsagePoint
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.datetime.LocalDate
@@ -27,6 +28,15 @@ class MeotimeUseCases(
         dailyLimitMinutes: Int,
     ): Boolean = repository.addMonitoredApp(packageName, appName, dailyLimitMinutes)
 
+    suspend fun addMonitoredAppWithWeeklyLimits(
+        packageName: String,
+        appName: String,
+        weeklyLimits: WeeklyLimits,
+    ): Boolean = repository.addMonitoredAppWithWeeklyLimits(packageName, appName, weeklyLimits)
+
+    suspend fun updateWeeklyLimits(packageName: String, weeklyLimits: WeeklyLimits) =
+        repository.updateWeeklyLimits(packageName, weeklyLimits)
+
     suspend fun updateDailyLimit(packageName: String, dailyLimitMinutes: Int) =
         repository.updateDailyLimit(packageName, dailyLimitMinutes)
 
@@ -41,6 +51,8 @@ class MeotimeUseCases(
 
     suspend fun getTodayUsageSeconds(packageName: String): Long =
         repository.getTodayUsageSeconds(packageName, todayKey.todayIso())
+
+    suspend fun today(): LocalDate = LocalDate.parse(todayKey.todayIso())
 
     fun observeDailyUsage(startDate: LocalDate, endDate: LocalDate): Flow<List<DailyUsagePoint>> =
         repository.observeDailyUsage(startDate, endDate)

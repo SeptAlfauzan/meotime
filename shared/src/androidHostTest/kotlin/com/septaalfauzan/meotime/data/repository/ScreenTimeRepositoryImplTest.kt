@@ -5,15 +5,19 @@ import androidx.test.core.app.ApplicationProvider
 import com.septaalfauzan.meotime.data.local.AndroidAppContextHolder
 import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepositoryImpl
+import com.septaalfauzan.meotime.domain.limit.effectiveLimitMinutes
 import com.septaalfauzan.meotime.domain.model.MonitoredApp
+import com.septaalfauzan.meotime.domain.model.WeeklyLimits
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.plus
 import kotlin.time.Instant
 import org.junit.Before
 import org.junit.runner.RunWith
@@ -226,6 +230,84 @@ class ScreenTimeRepositoryImplTest {
 
             repo.removeMonitoredApp("com.instagram.android")
             assertEquals(null, repo.getMonitoredApp("com.instagram.android"))
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun freeAddWritesAllWeekdaysAndLeavesMarkerFalse() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            assertTrue(repo.addMonitoredApp("com.instagram.android", "Instagram", 30))
+            val app = repo.getMonitoredApp("com.instagram.android")!!
+            assertFalse(app.usesWeeklyLimits)
+            assertEquals(
+                WeeklyLimits(
+                    monday = 30, tuesday = 30, wednesday = 30, thursday = 30,
+                    friday = 30, saturday = 30, sunday = 30,
+                ),
+                app.weeklyLimits,
+            )
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun weeklyAddAndUpdatePersistMarkerAndScheduleTogether() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            assertTrue(
+                repo.addMonitoredAppWithWeeklyLimits("com.calendar.app", "Calendar", WeeklyLimits(monday = 30, wednesday = 60))
+            )
+            var app = repo.getMonitoredApp("com.calendar.app")!!
+            assertTrue(app.usesWeeklyLimits)
+            assertEquals(WeeklyLimits(monday = 30, wednesday = 60), app.weeklyLimits)
+
+            repo.updateWeeklyLimits("com.calendar.app", WeeklyLimits())
+            app = repo.getMonitoredApp("com.calendar.app")!!
+            assertTrue(app.usesWeeklyLimits)
+            assertEquals(WeeklyLimits(), app.weeklyLimits)
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun allNullWeeklyRowNeverFallsBackToDaily() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.addMonitoredAppWithWeeklyLimits("com.calendar.app", "Calendar", WeeklyLimits(monday = 30))
+            repo.updateWeeklyLimits("com.calendar.app", WeeklyLimits())
+
+            val app = repo.getMonitoredApp("com.calendar.app")!!
+            assertTrue(app.usesWeeklyLimits)
+            assertEquals(WeeklyLimits(), app.weeklyLimits)
+
+            val mondays = generateSequence(LocalDate(2026, 9, 28)) { it.plus(7, DateTimeUnit.DAY) }.take(3)
+            mondays.forEach { assertEquals(null, effectiveLimitMinutes(app, it)) }
+        } finally {
+            db.closeAndDelete()
+        }
+    }
+
+    @Test
+    fun updateDailyLimitSwitchesRowBackToDaily() = runTest {
+        val (repo, db) = newRepo()
+        try {
+            repo.addMonitoredAppWithWeeklyLimits("com.calendar.app", "Calendar", WeeklyLimits(monday = 30))
+            repo.updateDailyLimit("com.calendar.app", 45)
+
+            val app = repo.getMonitoredApp("com.calendar.app")!!
+            assertFalse(app.usesWeeklyLimits)
+            assertEquals(
+                WeeklyLimits(
+                    monday = 45, tuesday = 45, wednesday = 45, thursday = 45,
+                    friday = 45, saturday = 45, sunday = 45,
+                ),
+                app.weeklyLimits,
+            )
         } finally {
             db.closeAndDelete()
         }

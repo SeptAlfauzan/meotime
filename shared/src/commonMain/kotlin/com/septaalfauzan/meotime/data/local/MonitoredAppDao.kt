@@ -28,6 +28,19 @@ interface MonitoredAppDao {
     @Query("UPDATE monitored_apps SET enabled = :enabled, updatedAt = :updatedAt WHERE packageName = :packageName")
     suspend fun setEnabled(packageName: String, enabled: Boolean, updatedAt: Long)
 
-    @Query("UPDATE monitored_apps SET dailyLimitMinutes = :limit, updatedAt = :updatedAt WHERE packageName = :packageName")
+    @Query("UPDATE monitored_apps SET dailyLimitMinutes = :limit, usesWeeklyLimits = 0, mondayLimitMinutes = :limit, tuesdayLimitMinutes = :limit, wednesdayLimitMinutes = :limit, thursdayLimitMinutes = :limit, fridayLimitMinutes = :limit, saturdayLimitMinutes = :limit, sundayLimitMinutes = :limit, updatedAt = :updatedAt WHERE packageName = :packageName")
     suspend fun updateLimit(packageName: String, limit: Int, updatedAt: Long)
+
+    @Query("UPDATE monitored_apps SET usesWeeklyLimits = 1, mondayLimitMinutes = :monday, tuesdayLimitMinutes = :tuesday, wednesdayLimitMinutes = :wednesday, thursdayLimitMinutes = :thursday, fridayLimitMinutes = :friday, saturdayLimitMinutes = :saturday, sundayLimitMinutes = :sunday, updatedAt = :updatedAt WHERE packageName = :packageName")
+    suspend fun updateWeeklyLimits(
+        packageName: String,
+        monday: Int?,
+        tuesday: Int?,
+        wednesday: Int?,
+        thursday: Int?,
+        friday: Int?,
+        saturday: Int?,
+        sunday: Int?,
+        updatedAt: Long,
+    )
 }

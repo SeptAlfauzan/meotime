@@ -51,4 +51,19 @@ class DashboardRangeRowTest {
         assertEquals(1f, row.progress)
         assertFalse(row.progress.isNaN())
     }
+
+    /**
+     * A weekly app's range row is about the week: it states the average and nothing about a daily
+     * budget — the daily-limit copy and its progress arithmetic are the Free row's, not this one's.
+     */
+    @Test
+    fun weeklyRangeOmitsTheDailyLimit() {
+        val row = dashboardRangeRow(
+            monitoredApp().copy(usesWeeklyLimits = true),
+            AppUsageSummary(totalSeconds = 6_000L, dailyAverageSeconds = 1_200L),
+        )
+
+        assertEquals("20m per day on average", row.status)
+        assertEquals(0f, row.progress)
+    }
 }

@@ -2,11 +2,13 @@ package com.septaalfauzan.meotime.monitoring
 
 import com.septaalfauzan.meotime.data.local.TodayKey
 import com.septaalfauzan.meotime.data.repository.ScreenTimeRepository
+import com.septaalfauzan.meotime.domain.limit.effectiveLimitMinutes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 /**
  * Decides when a restricted app has had enough. One app is in the foreground at a time, so this
@@ -43,6 +45,11 @@ import kotlinx.coroutines.launch
  *  - [Session.overlayShown] is per session, not per day. An app already over its limit is
  *    announced on every entry, every time. A per-day suppression set would let a user who hit
  *    the limit once walk past it for the rest of the day.
+ *
+ * A day with no limit still gets a session: it runs until the app leaves or the screen turns off,
+ * and usage is recorded on close. The one exception is midnight rollover: a tick that finds the
+ * session's cached start date behind [todayKey]'s current date closes the old session and opens
+ * a fresh one for the same package under the new day's limit, so a rule never leaks across days.
  */
 class MonitoringCore(
     private val repository: ScreenTimeRepository,
@@ -76,12 +83,14 @@ class MonitoringCore(
         val startedAtMillis: Long,
         val startedAtEpochMillis: Long,
         val storedSeconds: Long,
-        val limitSeconds: Long,
+        val startedAtDate: LocalDate,
+        /** The effective per-day limit, or `null` on a no-limit day. */
+        val limitSeconds: Long?,
         var overlayShown: Boolean,
     ) {
         fun liveSeconds(nowMillis: Long): Long = storedSeconds + (nowMillis - startedAtMillis) / 1000
 
-        fun toDecision(liveSeconds: Long) =
+        fun toDecision(liveSeconds: Long, limitSeconds: Long) =
             OverlayDecision(packageName, appName, liveSeconds, limitSeconds)
 
         fun toSnapshot() =
@@ -132,17 +141,28 @@ class MonitoringCore(
         closeCurrentSession(now)
         val session = createSession(packageName, now) ?: return
         currentSession = session
-        // Published before the over-limit check, so the one-shot branch below cannot swallow the
-        // open. A consumer that shows a running total has to hear about an over-limit entry too.
+        // Published before the over-limit branch in [afterSessionOpened], so the immediate-fire
+        // branch there cannot swallow the open. A consumer that shows a running total has to hear
+        // about an over-limit entry too.
         onSessionChanged?.invoke(session.toSnapshot())
+        afterSessionOpened(session, now)
+    }
 
+    /**
+     * The steps a freshly opened session takes, shared by the foreground-change path and the
+     * midnight rollover in [startTicking]. On a no-limit day the session stops here — no over
+     * check, no ticker — because there is nothing to enforce. Otherwise it fires immediately
+     * when the session is already over, or starts the ticker.
+     */
+    private suspend fun afterSessionOpened(session: Session, now: Long) {
+        val limitSeconds = session.limitSeconds ?: return
         val live = session.liveSeconds(now)
-        if (LimitChecker.exceeds(live, session.limitSeconds)) {
+        if (LimitChecker.exceeds(live, limitSeconds)) {
             // Over before a second has passed. Announced now and never ticked — there is nothing
             // left to watch for. The session still closes normally, so time spent on the blocked
             // app is still recorded.
             session.overlayShown = true
-            onOverlayDecision(session.toDecision(live))
+            onOverlayDecision(session.toDecision(live, limitSeconds))
             return
         }
         startTicking()
@@ -178,14 +198,17 @@ class MonitoringCore(
         if (packageName == null || packageName == selfPackageName) return null
         val app = repository.getMonitoredApp(packageName) ?: return null
         if (!app.enabled) return null
+        val date = LocalDate.parse(todayKey.todayIso())
         return Session(
             packageName = packageName,
             appName = app.appName,
             startedAtMillis = now,
             startedAtEpochMillis = wallClock.nowEpochMillis(),
             storedSeconds = repository.getTodayUsageSeconds(packageName, todayKey.todayIso()),
-            // The one place the limit's authoring unit becomes an arithmetic unit.
-            limitSeconds = app.dailyLimitMinutes * 60L,
+            startedAtDate = date,
+            // The one place the limit's authoring unit becomes an arithmetic unit. A null here
+            // is a no-limit day: the session still runs, but nothing ticks for it.
+            limitSeconds = effectiveLimitMinutes(app, date)?.times(60L),
             overlayShown = false,
         )
     }
@@ -196,11 +219,33 @@ class MonitoringCore(
                 delay(tickIntervalMillis)
                 val session = currentSession ?: return@launch
                 if (session.overlayShown) return@launch
-                val live = session.liveSeconds(clock.uptimeMillis())
-                if (!LimitChecker.exceeds(live, session.limitSeconds)) continue
+                val now = clock.uptimeMillis()
+                if (LocalDate.parse(todayKey.todayIso()) != session.startedAtDate) {
+                    // Midnight rollover: a rule must not leak across days, so the old session
+                    // closes and a fresh one opens for the same package under the new day's
+                    // limit. This loop IS the current tick job, so it detaches itself first —
+                    // close, reopen, then either fire immediately or start ticking again — and
+                    // returns so the old loop cannot continue with the superseded session.
+                    tickJob = null
+                    closeCurrentSession(now)
+                    val reopened = createSession(session.packageName, now)
+                    // createSession suspends on repository reads. A foreground switch for another
+                    // package may have claimed the free slot meanwhile: leave that session alone
+                    // instead of reviving the old app and starting a second ticker over it.
+                    if (currentSession != null) return@launch
+                    if (reopened != null) {
+                        currentSession = reopened
+                        onSessionChanged?.invoke(reopened.toSnapshot())
+                        afterSessionOpened(reopened, now)
+                    }
+                    return@launch
+                }
+                val limitSeconds = session.limitSeconds ?: return@launch
+                val live = session.liveSeconds(now)
+                if (!LimitChecker.exceeds(live, limitSeconds)) continue
                 session.overlayShown = true
                 tickJob = null
-                onOverlayDecision(session.toDecision(live))
+                onOverlayDecision(session.toDecision(live, limitSeconds))
                 return@launch
             }
         }

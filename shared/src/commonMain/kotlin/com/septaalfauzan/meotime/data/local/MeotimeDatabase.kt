@@ -23,7 +23,7 @@ import com.septaalfauzan.meotime.data.local.entity.SyncStateEntity
         HourlyUsageEntity::class,
         SyncStateEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MeotimeDatabase : RoomDatabase() {

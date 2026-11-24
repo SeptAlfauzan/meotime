@@ -14,17 +14,32 @@ package com.septaalfauzan.meotime.presentation.format
  * limit by more than 24 hours. So no clamp, and a negative reading is floored at zero rather
  * than rendered as one.
  *
+ * [includeDays] is the opt-in day-aware rendering: a reading of a day or more is written as
+ * whole days plus the remainder in the existing hours/minutes style, so a 1680-minute weekly
+ * total reads `1 day 4 hours`. It defaults to `false`, which keeps the hours-only rendering
+ * every pre-existing call site gets.
+ *
  * Seconds appear only below a minute. Above that it would be noise on a dashboard row, and
  * minute granularity is what the rest of the screen already speaks in.
  */
-fun formatUsage(seconds: Long): String {
+fun formatUsage(seconds: Long, includeDays: Boolean = false): String {
     val total = seconds.coerceAtLeast(0L)
     if (total < 60L) return "$total sec"
     val minutes = total / 60
-    val hours = minutes / 60
+    val days = if (includeDays) minutes / 1440 else 0
+    val hours = if (includeDays) (minutes % 1440) / 60 else minutes / 60
     val restMinutes = minutes % 60
+    val dayLabel = if (days == 1L) "day" else "days"
     val hourLabel = if (hours == 1L) "hour" else "hours"
     return when {
+        days > 0 -> when {
+            hours == 0L -> when {
+                restMinutes == 0L -> "$days $dayLabel"
+                else -> "$days $dayLabel ${restMinutes} min"
+            }
+            restMinutes == 0L -> "$days $dayLabel $hours $hourLabel"
+            else -> "$days $dayLabel $hours $hourLabel $restMinutes min"
+        }
         hours == 0L -> "$minutes min"
         restMinutes == 0L -> "$hours $hourLabel"
         else -> "$hours $hourLabel $restMinutes min"

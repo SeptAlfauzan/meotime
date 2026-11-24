@@ -33,6 +33,19 @@ class UsageFormatTest {
         assertEquals("2 hours 30 min", formatUsage(9_000L))
     }
 
+    /** The opt-in day-aware rendering, for call sites that speak days — the Pro weekly footer. */
+    @Test
+    fun optInDaysRenderingReadsWholeDays() {
+        // 1680 minutes is 28 hours: the whole-days rendering reads "1 day 4 hours", and the
+        // default (`includeDays = false`) keeps every other call site on the hours-only path.
+        assertEquals("1 day 4 hours", formatUsage(1680 * 60L, includeDays = true))
+        assertEquals("2 days", formatUsage(2 * 24 * 60 * 60L, includeDays = true))
+        assertEquals("1 day 4 hours 1 min", formatUsage(28 * 60 * 60L + 60L, includeDays = true))
+        // The default path is unchanged: same inputs, same hours-only strings as before.
+        assertEquals("28 hours", formatUsage(1680 * 60L))
+        assertEquals("25 hours", formatUsage(90_000L))
+    }
+
     @Test
     fun floorsNegativeReadingsAtZero() {
         assertEquals("0 sec", formatUsage(-5L))

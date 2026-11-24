@@ -207,4 +207,68 @@ class MeotimeDatabaseTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun migration_3_4_marksRowsDailyAndBackfillsEveryWeekday() = runTest {
+        val directory = createTempDirectory(prefix = "meotime-v3").toFile()
+        val path = directory.resolve("v3.db").path
+
+        // A v3 database: the same tables `migration_2_3` built, with a row whose daily limit is
+        // 45. `monitored_apps` has no weekly columns yet; they must come from the migration.
+        android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(path, null).apply {
+            execSQL(
+                "CREATE TABLE IF NOT EXISTS `daily_usage` (" +
+                    "`packageName` TEXT NOT NULL, `date` TEXT NOT NULL, " +
+                    "`usageSeconds` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`packageName`, `date`))",
+            )
+            execSQL(
+                "CREATE TABLE IF NOT EXISTS `monitored_apps` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `packageName` TEXT NOT NULL, " +
+                    "`appName` TEXT NOT NULL, `dailyLimitMinutes` INTEGER NOT NULL, " +
+                    "`enabled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)",
+            )
+            execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS `index_monitored_apps_packageName` " +
+                    "ON `monitored_apps` (`packageName`)",
+            )
+            execSQL(
+                "CREATE TABLE IF NOT EXISTS `hourly_usage` (" +
+                    "`packageName` TEXT NOT NULL, `date` TEXT NOT NULL, `hour` INTEGER NOT NULL, " +
+                    "`usageSeconds` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`packageName`, `date`, `hour`))",
+            )
+            execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_hourly_usage_date` " +
+                    "ON `hourly_usage` (`date`)",
+            )
+            execSQL(
+                "CREATE TABLE IF NOT EXISTS `sync_state` (" +
+                    "`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+            )
+            execSQL(
+                "INSERT INTO `monitored_apps` VALUES (1, 'com.instagram.android', 'Instagram', 45, 1, 1, 1)",
+            )
+            execSQL("PRAGMA user_version = 3")
+            close()
+        }
+
+        val db = createMeotimeDatabase(nameOverride = path)
+        try {
+            val app = db.monitoredAppDao().getByPackage("com.instagram.android")
+            assertNotNull(app, "migration dropped the user's monitored apps")
+            assertEquals(45, app.dailyLimitMinutes)
+            assertEquals(false, app.usesWeeklyLimits)
+            assertEquals(45, app.mondayLimitMinutes)
+            assertEquals(45, app.tuesdayLimitMinutes)
+            assertEquals(45, app.wednesdayLimitMinutes)
+            assertEquals(45, app.thursdayLimitMinutes)
+            assertEquals(45, app.fridayLimitMinutes)
+            assertEquals(45, app.saturdayLimitMinutes)
+            assertEquals(45, app.sundayLimitMinutes)
+        } finally {
+            db.close()
+            directory.deleteRecursively()
+        }
+    }
 }

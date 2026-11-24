@@ -56,6 +56,7 @@ internal fun DateRangePickerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // ModalBottomSheet composes in a separate window, so it cannot inherit App's gutter.
                 .padding(horizontal = spacing.screen)
                 .padding(bottom = spacing.xl),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),

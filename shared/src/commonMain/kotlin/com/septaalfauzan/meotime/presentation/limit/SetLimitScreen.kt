@@ -25,6 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -37,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
+import com.septaalfauzan.meotime.presentation.theme.MeotimeTypography
 
 /**
  * Set the daily limit for an app, and persist the app itself.
@@ -77,9 +81,7 @@ fun SetLimitScreen(
     val spacing = MeotimeTokens.spacing
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(spacing.screen),
+        modifier = modifier.fillMaxSize(),
     ) {
         when {
             state.missingArgument -> SetLimitMissingArgument(onClose = onClose)
@@ -116,6 +118,12 @@ private fun SetLimitEditor(
 ) {
     val spacing = MeotimeTokens.spacing
     val editing = !state.saving
+    var hours by remember {
+        mutableStateOf(state.minutes / 60)
+    }
+    var minutes by remember {
+        mutableStateOf(state.minutes % 60)
+    }
 
     // The editor is a fixed column rather than a list, so it is the one screen in this flow that can
     // run out of height — a 200% font scale, or a short window. It scrolls rather than clipping, so
@@ -136,37 +144,32 @@ private fun SetLimitEditor(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(spacing.lg))
-
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MeotimeOutlinedButton(
-                onClick = onDecrement,
-                enabled = editing && state.canDecrement,
-                contentPadding = MeotimeTokens.controls.textButtonContentPadding,
-            ) {
-                // The glyph alone would be announced as a minus sign; the label says what it changes.
-                Text("−", modifier = Modifier.semantics { contentDescription = "One minute less" })
-            }
-            Spacer(Modifier.width(spacing.lg))
-            Text(
-                state.minutes.toString(),
-                style = MaterialTheme.typography.displaySmall,
-                // Restates the value in words, which the line below already announces. Describing
-                // both would read the limit twice; this one is kept for sight, the line is the
-                // single spoken answer.
-                modifier = Modifier.clearAndSetSemantics { },
+            WheelColumn(
+                count = 24,
+                selected = hours,
+                label = "Hours",
+                onSelect = { hour ->
+                    hours = hour
+                    onSetMinutes(hour * 60 + minutes)
+                },
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(spacing.lg))
-            MeotimeOutlinedButton(
-                onClick = onIncrement,
-                enabled = editing && state.canIncrement,
-                contentPadding = MeotimeTokens.controls.textButtonContentPadding,
-            ) {
-                Text("+", modifier = Modifier.semantics { contentDescription = "One minute more" })
-            }
+            Text(":", style = MeotimeTypography.displayLarge)
+            WheelColumn(
+                count = 60,
+                selected = minutes,
+                label = "Minutes",
+                onSelect = { minute ->
+                    minutes = minute
+                    onSetMinutes(hours * 60 + minute)
+                },
+                modifier = Modifier.weight(1f),
+            )
         }
         Spacer(Modifier.height(spacing.xs))
         Text(
@@ -206,7 +209,7 @@ private fun SetLimitEditor(
             SetLimitNotice(
                 label = "Already monitored",
                 message = "${state.appName} is on your list. Saving will change its limit to " +
-                    "${formatLimitMinutes(state.minutes)} a day.",
+                        "${formatLimitMinutes(state.minutes)} a day.",
             )
             Spacer(Modifier.height(spacing.sm))
         }
@@ -215,7 +218,7 @@ private fun SetLimitEditor(
                 SetLimitNotice(
                     label = "Not saved",
                     message = "${state.appName} was added to your list somewhere else, so Meotime left its " +
-                        "limit alone. Go to your apps to change it from there.",
+                            "limit alone. Go to your apps to change it from there.",
                 )
                 Spacer(Modifier.height(spacing.sm))
                 MeotimeOutlinedButton(
@@ -252,10 +255,10 @@ private fun SetLimitEditor(
 /**
  * A label plus its message. Two pieces of text, not a tinted box: a notice that is only a colour
  * disappears for a user who cannot see it, and the label is what says which of the two failure
- * kinds this is.
+ * kinds this is. Shared by both limit editors (the weekly screen reuses it for its own copy).
  */
 @Composable
-private fun SetLimitNotice(label: String, message: String) {
+internal fun SetLimitNotice(label: String, message: String) {
     val spacing = MeotimeTokens.spacing
     Column(
         modifier = Modifier
@@ -277,7 +280,7 @@ private fun SetLimitNotice(label: String, message: String) {
  * honest action is to leave — the message says so rather than rendering an editor that cannot work.
  */
 @Composable
-private fun SetLimitMissingArgument(onClose: () -> Unit) {
+internal fun SetLimitMissingArgument(onClose: () -> Unit) {
     val spacing = MeotimeTokens.spacing
     Column(
         modifier = Modifier
@@ -300,7 +303,7 @@ private fun SetLimitMissingArgument(onClose: () -> Unit) {
 }
 
 @Composable
-private fun SetLimitReadError(onRetry: () -> Unit) {
+internal fun SetLimitReadError(onRetry: () -> Unit) {
     val spacing = MeotimeTokens.spacing
     Column(
         modifier = Modifier
@@ -330,7 +333,7 @@ private fun SetLimitReadError(onRetry: () -> Unit) {
  * announced bar by bar, and `mergeDescendants` is what makes that stick.
  */
 @Composable
-private fun SetLimitSkeleton() {
+internal fun SetLimitSkeleton() {
     val spacing = MeotimeTokens.spacing
     val transition = rememberInfiniteTransition(label = "set-limit-skeleton")
     val alpha by transition.animateFloat(

@@ -19,4 +19,11 @@ data class MonitoredApp(
     val updatedAt: Long,
     val todayUsageSeconds: Long = 0,
     val installed: Boolean = true,
+    /** True when this app follows its [weeklyLimits] schedule instead of the daily limit. */
+    val usesWeeklyLimits: Boolean = false,
+    /**
+     * The per-weekday limits. Only read when [usesWeeklyLimits] is true; [WeeklyLimits] is the
+     * schedule type, so the default is the all-`null` schedule.
+     */
+    val weeklyLimits: WeeklyLimits = WeeklyLimits(),
 )

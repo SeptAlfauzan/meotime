@@ -58,3 +58,36 @@ internal val MIGRATION_2_3_SQL: List<String> = listOf(
       ON `hourly_usage` (`date`)
     """.trimIndent(),
 )
+
+/**
+ * v3 -> v4: weekly schedule columns on `monitored_apps`.
+ *
+ * `usesWeeklyLimits` is the explicit marker — `ALTER TABLE` cannot set a default that depends on
+ * existing rows, so every row starts false and the UPDATE below backfills the seven weekday
+ * columns with the user's existing `dailyLimitMinutes`. `dailyLimitMinutes` keeps that value as
+ * the authority for Free rows: those users get no weekly limits, and the backfilled weekdays are
+ * inert data the repository maps into [com.septaalfauzan.meotime.domain.model.WeeklyLimits] but
+ * that never overrides their daily limit. The weekday columns start `NULL` (no limit) and the
+ * UPDATE writes the user's existing `dailyLimitMinutes` into each of them — every limit the app
+ * ever wrote went through the domain clamp, so this is never zero.
+ */
+internal val MIGRATION_3_4_SQL: List<String> = listOf(
+    "ALTER TABLE `monitored_apps` ADD COLUMN `usesWeeklyLimits` INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `mondayLimitMinutes` INTEGER",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `tuesdayLimitMinutes` INTEGER",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `wednesdayLimitMinutes` INTEGER",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `thursdayLimitMinutes` INTEGER",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `fridayLimitMinutes` INTEGER",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `saturdayLimitMinutes` INTEGER",
+    "ALTER TABLE `monitored_apps` ADD COLUMN `sundayLimitMinutes` INTEGER",
+    """
+    UPDATE `monitored_apps`
+    SET `mondayLimitMinutes` = `dailyLimitMinutes`,
+        `tuesdayLimitMinutes` = `dailyLimitMinutes`,
+        `wednesdayLimitMinutes` = `dailyLimitMinutes`,
+        `thursdayLimitMinutes` = `dailyLimitMinutes`,
+        `fridayLimitMinutes` = `dailyLimitMinutes`,
+        `saturdayLimitMinutes` = `dailyLimitMinutes`,
+        `sundayLimitMinutes` = `dailyLimitMinutes`
+    """.trimIndent(),
+)

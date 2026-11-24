@@ -149,5 +149,6 @@ class AppContainer(private val context: Context) {
             },
             startMonitoring = { startMonitoring() },
             deepLink = deepLink,
+            weeklyLimitsEnabled = BuildConfig.FLAVOR == "pro",
         )
 }

@@ -17,7 +17,7 @@ actual fun createMeotimeDatabase(nameOverride: String?): MeotimeDatabase {
     val name = nameOverride ?: (NSHomeDirectory() + "/Documents/" + MeotimeDatabase.DB_NAME)
     return Room.databaseBuilder<MeotimeDatabase>(name = name)
         .setDriver(BundledSQLiteDriver())
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
         .build()
 }
 
