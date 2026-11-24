@@ -91,6 +91,15 @@ class AppContainer(private val context: Context) {
     @Volatile
     internal var notificationPermissionHost: NotificationPermissionHost? = null
 
+    /**
+     * Set by service teardown before the controller hide is posted. A foreground change already
+     * suspended in the repository can still resume after `core.detach()`; its tracker decision is
+     * dropped here instead of queuing an open behind the hide. `resumeTracking` re-opens the gate
+     * when the service starts again in the same process.
+     */
+    @Volatile
+    private var trackerStopped = false
+
     val coreMutex = Mutex()
 
     val core = MonitoringCore(
@@ -118,7 +127,7 @@ class AppContainer(private val context: Context) {
             if (snapshot == null) usageTrackerController.onSessionClosed()
             notificationController.onSessionChanged(snapshot)
         },
-        onUsageTrackerDecision = { usageTrackerController.onSessionOpened(it) },
+        onUsageTrackerDecision = { if (!trackerStopped) usageTrackerController.onSessionOpened(it) },
     )
 
     init {
@@ -127,10 +136,9 @@ class AppContainer(private val context: Context) {
             renderer = TrackerRenderer { overlayManager.renderTracker(it) },
             clock = clock,
             scope = scope,
-            // One dispatcher for every controller state change and render post. From a core IO
-            // callback the hide is queued on main ahead of show()'s hide+blocker; from onDestroy,
-            // already on main, it runs inline before dismiss().
-            eventDispatcher = Dispatchers.Main.immediate,
+            // Plain Main always posts, even from main: hide cannot run inline ahead of an open
+            // already queued by a core IO callback. Queue order then decides every render post.
+            eventDispatcher = Dispatchers.Main,
         )
         overlayManager.onTrackerTap = { usageTrackerController.onPillTapped() }
         notifier = AndroidNotifier(context)
@@ -140,6 +148,17 @@ class AppContainer(private val context: Context) {
             scope = scope,
         )
         scope.launch { SleepingCatOverlayAnimation.preload() }
+    }
+
+    /** Teardown gate: drop any tracker decision still in flight, then post the hide. */
+    internal fun stopTracking() {
+        trackerStopped = true
+        usageTrackerController.onSessionClosed()
+    }
+
+    /** A restarted service in this process must be able to show the pill again. */
+    internal fun resumeTracking() {
+        trackerStopped = false
     }
 
     /**

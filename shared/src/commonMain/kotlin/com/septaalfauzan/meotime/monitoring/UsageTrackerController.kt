@@ -33,11 +33,12 @@ fun interface TrackerRenderer {
  * One snapshot at a time. Every read or write of [snapshot], [expanded] and the two jobs, and every
  * [TrackerRenderer.render] call, happens on the single [eventDispatcher]: public callbacks only
  * enqueue work there, and the ticker and collapse jobs are launched there too. That confinement —
- * not job cancellation — is what makes hide deterministic. A hide posted from any thread is ordered
- * on that dispatcher behind frames already queued and ahead of later ticks, so a non-suspending
- * publish cannot slip out after the null frame. Cancelling a job alone is cooperative: it cannot
- * stop a publish already in progress on another thread. A no-limit day is never published by the
- * core, so a snapshot here always has a limit.
+ * not job cancellation — is what makes hide deterministic. Events are posted, never dispatched
+ * inline, so the queue order is the order of every state change and render call: an open queued
+ * before a hide runs first and the hide removes its frame; a hide queued before a later tick
+ * suppresses that tick. Cancelling a job alone is cooperative: it cannot stop a publish already
+ * in progress on another thread. A no-limit day is never published by the core, so a snapshot here
+ * always has a limit.
  */
 class UsageTrackerController(
     private val renderer: TrackerRenderer,

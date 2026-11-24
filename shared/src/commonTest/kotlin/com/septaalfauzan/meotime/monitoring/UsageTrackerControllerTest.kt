@@ -158,6 +158,28 @@ class UsageTrackerControllerTest {
     }
 
     @Test
+    fun openQueuedBeforeHideStaysHiddenOnPostingDispatcher() = runTest {
+        // TestDispatcher always posts, as Android's plain Dispatchers.Main does. Both events are
+        // queued before either runs, so FIFO puts the open first and the hide last.
+        val controller = controller()
+        controller.onSessionOpened(snapshot())
+        controller.onSessionClosed()
+
+        runCurrent()
+        advanceTimeBy(3_000L)
+        runCurrent()
+
+        assertTrue(renderer.frames.first() != null)
+        assertEquals(1, renderer.frames.count { it == null })
+        val hideIndex = renderer.frames.indexOf(null)
+        assertTrue(hideIndex >= 0, "hide never rendered: ${renderer.frames}")
+        assertTrue(
+            renderer.frames.drop(hideIndex + 1).all { it == null },
+            "a frame was published after hide: ${renderer.frames}",
+        )
+    }
+
+    @Test
     fun hideFromAnotherThreadBeatsQueuedTick() = runTest {
         // Gate the tick after its null check but before it renders: the clock read is the only
         // suspension-free seam in publish(). Hide is invoked from a real Default thread while the
