@@ -195,7 +195,7 @@ private fun TimePreset(label: String, onClick: () -> Unit) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WheelColumn(
+fun WheelColumn(
     count: Int,
     selected: Int,
     label: String,

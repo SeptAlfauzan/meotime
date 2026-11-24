@@ -25,6 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -37,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.septaalfauzan.meotime.presentation.theme.MeotimeButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeOutlinedButton
 import com.septaalfauzan.meotime.presentation.theme.MeotimeTokens
+import com.septaalfauzan.meotime.presentation.theme.MeotimeTypography
 
 /**
  * Set the daily limit for an app, and persist the app itself.
@@ -114,6 +118,12 @@ private fun SetLimitEditor(
 ) {
     val spacing = MeotimeTokens.spacing
     val editing = !state.saving
+    var hours by remember {
+        mutableStateOf(state.minutes / 60)
+    }
+    var minutes by remember {
+        mutableStateOf(state.minutes % 60)
+    }
 
     // The editor is a fixed column rather than a list, so it is the one screen in this flow that can
     // run out of height — a 200% font scale, or a short window. It scrolls rather than clipping, so
@@ -134,37 +144,32 @@ private fun SetLimitEditor(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(spacing.lg))
-
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MeotimeOutlinedButton(
-                onClick = onDecrement,
-                enabled = editing && state.canDecrement,
-                contentPadding = MeotimeTokens.controls.textButtonContentPadding,
-            ) {
-                // The glyph alone would be announced as a minus sign; the label says what it changes.
-                Text("−", modifier = Modifier.semantics { contentDescription = "One minute less" })
-            }
-            Spacer(Modifier.width(spacing.lg))
-            Text(
-                state.minutes.toString(),
-                style = MaterialTheme.typography.displaySmall,
-                // Restates the value in words, which the line below already announces. Describing
-                // both would read the limit twice; this one is kept for sight, the line is the
-                // single spoken answer.
-                modifier = Modifier.clearAndSetSemantics { },
+            WheelColumn(
+                count = 24,
+                selected = hours,
+                label = "Hours",
+                onSelect = { hour ->
+                    hours = hour
+                    onSetMinutes(hour * 60 + minutes)
+                },
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(spacing.lg))
-            MeotimeOutlinedButton(
-                onClick = onIncrement,
-                enabled = editing && state.canIncrement,
-                contentPadding = MeotimeTokens.controls.textButtonContentPadding,
-            ) {
-                Text("+", modifier = Modifier.semantics { contentDescription = "One minute more" })
-            }
+            Text(":", style = MeotimeTypography.displayLarge)
+            WheelColumn(
+                count = 60,
+                selected = minutes,
+                label = "Minutes",
+                onSelect = { minute ->
+                    minutes = minute
+                    onSetMinutes(hours * 60 + minute)
+                },
+                modifier = Modifier.weight(1f),
+            )
         }
         Spacer(Modifier.height(spacing.xs))
         Text(
@@ -204,7 +209,7 @@ private fun SetLimitEditor(
             SetLimitNotice(
                 label = "Already monitored",
                 message = "${state.appName} is on your list. Saving will change its limit to " +
-                    "${formatLimitMinutes(state.minutes)} a day.",
+                        "${formatLimitMinutes(state.minutes)} a day.",
             )
             Spacer(Modifier.height(spacing.sm))
         }
@@ -213,7 +218,7 @@ private fun SetLimitEditor(
                 SetLimitNotice(
                     label = "Not saved",
                     message = "${state.appName} was added to your list somewhere else, so Meotime left its " +
-                        "limit alone. Go to your apps to change it from there.",
+                            "limit alone. Go to your apps to change it from there.",
                 )
                 Spacer(Modifier.height(spacing.sm))
                 MeotimeOutlinedButton(
