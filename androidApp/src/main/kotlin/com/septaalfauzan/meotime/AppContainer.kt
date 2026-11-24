@@ -18,6 +18,8 @@ import com.septaalfauzan.meotime.monitoring.MonitoringForegroundService
 import com.septaalfauzan.meotime.monitoring.MonotonicClock
 import com.septaalfauzan.meotime.monitoring.NotificationController
 import com.septaalfauzan.meotime.monitoring.OverlayManager
+import com.septaalfauzan.meotime.monitoring.TrackerRenderer
+import com.septaalfauzan.meotime.monitoring.UsageTrackerController
 import com.septaalfauzan.meotime.permission.PermissionActions
 import com.septaalfauzan.meotime.permission.PermissionChecks
 import com.septaalfauzan.meotime.presentation.DeepLinkRequest
@@ -60,12 +62,15 @@ class AppContainer(private val context: Context) {
      */
     val clock = MonotonicClock { SystemClock.uptimeMillis() }
 
-    // The `@Suppress("UnnecessaryLateinit")` these three used to carry was inert: the diagnostic is
+    /** Shared by the settings list and the tracker window, so the tracker paints a real icon. */
+    private val appIconProvider = AppIconProviderAndroid(context)
+
+    // The `@Suppress("UnnecessaryLateinit")` these four used to carry was inert: the diagnostic is
     // reported *at* the declaration and survives a suppression placed there — verified by putting
-    // the annotation back and getting the same three warnings. Kept as plain `lateinit`, because
-    // they genuinely cannot be constructor parameters: `core` below is built in this class's
-    // initialiser block and reads all three from its lambdas, so it must exist before the
-    // constructor body runs. The warning is a false positive that costs three lines of build log.
+    // the annotation back and getting the same warnings. Kept as plain `lateinit`, because they
+    // genuinely cannot be constructor parameters: `core` below is built in this class's initialiser
+    // block and reads all four from its lambdas, so they must exist before the constructor body
+    // runs. The warning is a false positive that costs build-log lines.
     internal lateinit var overlayManager: OverlayManager
         private set
 
@@ -73,6 +78,9 @@ class AppContainer(private val context: Context) {
         private set
 
     internal lateinit var notificationController: NotificationController
+        private set
+
+    internal lateinit var usageTrackerController: UsageTrackerController
         private set
 
     /**
@@ -96,16 +104,29 @@ class AppContainer(private val context: Context) {
         // this in scope.launch would only add a queue between the decision and the screen. The
         // lambdas read the lateinit properties when they run, which is after init.
         onOverlayDecision = { decision ->
+            // Stop the pill before the blocker takes the screen: show() hides it too, but the
+            // controller must also drop its ticker and pending collapse so no frame can follow.
+            usageTrackerController.onLimitCrossed()
             overlayManager.show(decision)
             // The core already emits the crossing, so the notification hears about it here rather
             // than through a second callback for the same event — one signal, one place.
             notificationController.onLimitCrossed()
         },
-        onSessionChanged = { snapshot -> notificationController.onSessionChanged(snapshot) },
+        onSessionChanged = { snapshot ->
+            if (snapshot == null) usageTrackerController.onSessionClosed()
+            notificationController.onSessionChanged(snapshot)
+        },
+        onUsageTrackerDecision = { usageTrackerController.onSessionOpened(it) },
     )
 
     init {
-        overlayManager = OverlayManager(context)
+        overlayManager = OverlayManager(context, appIconProvider, scope)
+        usageTrackerController = UsageTrackerController(
+            renderer = TrackerRenderer { overlayManager.renderTracker(it) },
+            clock = clock,
+            scope = scope,
+        )
+        overlayManager.onTrackerTap = { usageTrackerController.onPillTapped() }
         notifier = AndroidNotifier(context)
         notificationController = NotificationController(
             notifier = notifier,
@@ -140,7 +161,7 @@ class AppContainer(private val context: Context) {
             permissionNavigator = PermissionActions(context),
             installedAppsProvider = InstalledAppsProviderAndroid(context),
             installedAppCheck = AppLabelResolver(context).asInstalledAppCheck(),
-            appIconProvider = AppIconProviderAndroid(context),
+            appIconProvider = appIconProvider,
             // The launcher lives in the Activity, so the shared graph only ever sees the request
             // shape. Null host is a dropped request, not a crash: there is no visible surface to
             // show the system dialog on.

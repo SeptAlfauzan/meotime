@@ -173,6 +173,7 @@ class MonitoringForegroundService : Service() {
         // returns, so no tick can fire between here and the view being removed. Closing the
         // session instead would queue a coroutine and leave that race open.
         container?.core?.detach()
+        container?.usageTrackerController?.onSessionClosed()
         container?.overlayManager?.dismiss()
         container = null
         super.onDestroy()
