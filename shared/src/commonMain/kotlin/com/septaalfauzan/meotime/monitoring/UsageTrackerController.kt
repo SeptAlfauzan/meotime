@@ -39,6 +39,10 @@ fun interface TrackerRenderer {
  * suppresses that tick. Cancelling a job alone is cooperative: it cannot stop a publish already
  * in progress on another thread. A no-limit day is never published by the core, so a snapshot here
  * always has a limit.
+ *
+ * [onSessionOpened] may be dropped if the platform stops tracking before the event runs: [isEnabled]
+ * is re-read inside the dispatched body, closing the gap between an IO-side gate check and main-thread
+ * execution.
  */
 class UsageTrackerController(
     private val renderer: TrackerRenderer,
@@ -47,6 +51,7 @@ class UsageTrackerController(
     private val eventDispatcher: CoroutineDispatcher,
     private val tickIntervalMillis: Long = 1_000L,
     private val expandTimeoutMillis: Long = 3_000L,
+    private val isEnabled: () -> Boolean = { true },
 ) {
     private var snapshot: SessionSnapshot? = null
     private var expanded = false
@@ -55,6 +60,7 @@ class UsageTrackerController(
 
     fun onSessionOpened(snapshot: SessionSnapshot) {
         scope.launch(eventDispatcher) {
+            if (!isEnabled()) return@launch
             this@UsageTrackerController.snapshot = snapshot
             expanded = false
             collapseJob?.cancel()

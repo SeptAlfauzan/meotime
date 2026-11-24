@@ -139,6 +139,9 @@ class AppContainer(private val context: Context) {
             // Plain Main always posts, even from main: hide cannot run inline ahead of an open
             // already queued by a core IO callback. Queue order then decides every render post.
             eventDispatcher = Dispatchers.Main,
+            // Re-read on main when the open actually runs: an IO-side check can be stale after
+            // teardown posts its hide.
+            isEnabled = { !trackerStopped },
         )
         overlayManager.onTrackerTap = { usageTrackerController.onPillTapped() }
         notifier = AndroidNotifier(context)

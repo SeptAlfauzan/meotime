@@ -44,13 +44,16 @@ class UsageTrackerControllerTest {
         limitSeconds = limit,
     )
 
-    private fun TestScope.controller(clock: MonotonicClock = MonotonicClock { currentTime }) =
-        UsageTrackerController(
-            renderer = renderer,
-            clock = clock,
-            scope = backgroundScope,
-            eventDispatcher = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher,
-        )
+    private fun TestScope.controller(
+        clock: MonotonicClock = MonotonicClock { currentTime },
+        isEnabled: () -> Boolean = { true },
+    ) = UsageTrackerController(
+        renderer = renderer,
+        clock = clock,
+        scope = backgroundScope,
+        eventDispatcher = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher,
+        isEnabled = isEnabled,
+    )
 
     @Test
     fun openPublishesCompactFrame() = runTest {
@@ -155,6 +158,33 @@ class UsageTrackerControllerTest {
         advanceTimeBy(2_000L)
         runCurrent()
         assertEquals(1, renderer.frames.count { it == null })
+    }
+
+    @Test
+    fun openDroppedWhenDisabledBeforeQueuedEventRuns() = runTest {
+        // IO-side gate checks are racy: teardown can flip the flag after the call but before the
+        // posted open runs. The predicate must be re-read inside the dispatched body.
+        var enabled = true
+        val controller = controller(isEnabled = { enabled })
+        controller.onSessionOpened(snapshot())
+        enabled = false
+        controller.onSessionClosed()
+
+        runCurrent()
+        advanceTimeBy(3_000L)
+        runCurrent()
+
+        assertTrue(
+            renderer.frames.none { it != null },
+            "an open was published after teardown: ${renderer.frames}",
+        )
+        assertEquals(1, renderer.frames.count { it == null })
+        val hideIndex = renderer.frames.indexOf(null)
+        assertTrue(hideIndex >= 0, "hide never rendered: ${renderer.frames}")
+        assertTrue(
+            renderer.frames.drop(hideIndex + 1).all { it == null },
+            "a frame was published after hide: ${renderer.frames}",
+        )
     }
 
     @Test
