@@ -76,6 +76,7 @@ class MonitoringCoreTest {
     private val today = FakeTodayKey("2026-09-25")
     private val selfPkg = "com.septaalfauzan.meotime"
     private val decisions = mutableListOf<MonitoringCore.OverlayDecision>()
+    private val trackerDecisions = mutableListOf<SessionSnapshot>()
 
     /** 30 minutes, which at seconds precision is the boundary every test below is probing. */
     private fun repository(): FakeRepository = FakeRepository().apply {
@@ -87,6 +88,7 @@ class MonitoringCoreTest {
         repository: ScreenTimeRepository,
         todayKey: TodayKey = today,
         onSessionChanged: ((SessionSnapshot?) -> Unit)? = null,
+        onUsageTrackerDecision: ((SessionSnapshot) -> Unit)? = null,
     ) = MonitoringCore(
         repository = repository,
         todayKey = todayKey,
@@ -95,6 +97,7 @@ class MonitoringCoreTest {
         scope = this,
         onOverlayDecision = { decisions += it },
         onSessionChanged = onSessionChanged,
+        onUsageTrackerDecision = onUsageTrackerDecision ?: { trackerDecisions += it },
     ).apply {
         // The core is inert until a service attaches it, exactly as AppContainer builds it. A
         // test that skipped this would watch a core that ignores every event and pass vacuously.
@@ -559,5 +562,63 @@ class MonitoringCoreTest {
         runCurrent()
         assertEquals(1, decisions.size, "the new day's limit fires once")
         assertEquals(INSTAGRAM, decisions[0].packageName)
+    }
+
+    @Test
+    fun trackerDecisionFiresForAnUnderLimitEntry() = runTest {
+        val repo = repository()
+        val core = core(repo)
+
+        core.onForegroundChange(INSTAGRAM)
+
+        val frame = trackerDecisions.single()
+        assertEquals(INSTAGRAM, frame.packageName)
+        assertEquals("Instagram", frame.appName)
+        assertEquals(0L, frame.storedSeconds)
+        assertEquals(1_800L, frame.limitSeconds)
+        assertTrue(decisions.isEmpty(), "under the limit is not a blocker decision")
+    }
+
+    @Test
+    fun alreadyOverEntryFiresBlockerWithoutTrackerDecision() = runTest {
+        val repo = repository()
+        repo.recordUsageSeconds(INSTAGRAM, 30 * 60L, today.todayIso())
+        val core = core(repo)
+
+        core.onForegroundChange(INSTAGRAM)
+
+        assertEquals(1, decisions.size)
+        assertTrue(trackerDecisions.isEmpty(), "an already-over entry must not show the tracker first")
+    }
+
+    @Test
+    fun noLimitDayFiresNoTrackerDecision() = runTest {
+        val repo = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits())
+        }
+        val core = core(repo)
+
+        core.onForegroundChange(INSTAGRAM)
+
+        assertTrue(trackerDecisions.isEmpty())
+        assertNull(core.activeTick)
+    }
+
+    @Test
+    fun midnightRolloverFiresTrackerUnderNewDay() = runTest {
+        val key = MutableFakeTodayKey("2026-09-28")
+        val repo = FakeRepository().apply {
+            addMonitoredAppWithWeeklyLimitsBlocking(INSTAGRAM, "Instagram", WeeklyLimits(monday = 30, tuesday = 30))
+        }
+        val core = core(repo, todayKey = key)
+
+        core.onForegroundChange(INSTAGRAM)
+        advanceTimeBy(60_000L)
+        key.date = "2026-09-29"
+        advanceTimeBy(1_000L)
+        runCurrent()
+
+        assertEquals(2, trackerDecisions.size, "one for Monday, one for the reopened Tuesday session")
+        assertTrue(decisions.isEmpty())
     }
 }

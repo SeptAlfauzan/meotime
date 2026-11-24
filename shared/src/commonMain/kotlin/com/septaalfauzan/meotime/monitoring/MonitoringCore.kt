@@ -68,6 +68,12 @@ class MonitoringCore(
      * there would be reported to a listener that is already being torn down.
      */
     private val onSessionChanged: ((SessionSnapshot?) -> Unit)? = null,
+    /**
+     * Published once when a limited session opens under its limit. An already-over entry is a
+     * blocker decision only, and a no-limit day publishes nothing. Defaulted to `null` so existing
+     * construction sites keep compiling unchanged.
+     */
+    private val onUsageTrackerDecision: ((SessionSnapshot) -> Unit)? = null,
     private val tickIntervalMillis: Long = 1_000L,
 ) {
     data class OverlayDecision(
@@ -165,6 +171,7 @@ class MonitoringCore(
             onOverlayDecision(session.toDecision(live, limitSeconds))
             return
         }
+        onUsageTrackerDecision?.invoke(session.toSnapshot())
         startTicking()
     }
 
