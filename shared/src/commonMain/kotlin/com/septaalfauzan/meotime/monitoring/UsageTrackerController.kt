@@ -1,5 +1,6 @@
 package com.septaalfauzan.meotime.monitoring
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,14 +30,20 @@ fun interface TrackerRenderer {
  * re-reads the snapshot's live usage every second while the session is open, expanded or collapsed,
  * and keeps the expand timer for three seconds.
  *
- * One snapshot at a time. A close or a limit crossing ends it synchronously — both jobs are
- * cancelled before returning so no delayed tick can republish a frame after the overlay is gone.
- * A no-limit day is never published by the core, so a snapshot here always has a limit.
+ * One snapshot at a time. Every read or write of [snapshot], [expanded] and the two jobs, and every
+ * [TrackerRenderer.render] call, happens on the single [eventDispatcher]: public callbacks only
+ * enqueue work there, and the ticker and collapse jobs are launched there too. That confinement —
+ * not job cancellation — is what makes hide deterministic. A hide posted from any thread is ordered
+ * on that dispatcher behind frames already queued and ahead of later ticks, so a non-suspending
+ * publish cannot slip out after the null frame. Cancelling a job alone is cooperative: it cannot
+ * stop a publish already in progress on another thread. A no-limit day is never published by the
+ * core, so a snapshot here always has a limit.
  */
 class UsageTrackerController(
     private val renderer: TrackerRenderer,
     private val clock: MonotonicClock,
     private val scope: CoroutineScope,
+    private val eventDispatcher: CoroutineDispatcher,
     private val tickIntervalMillis: Long = 1_000L,
     private val expandTimeoutMillis: Long = 3_000L,
 ) {
@@ -46,12 +53,14 @@ class UsageTrackerController(
     private var collapseJob: Job? = null
 
     fun onSessionOpened(snapshot: SessionSnapshot) {
-        this.snapshot = snapshot
-        expanded = false
-        collapseJob?.cancel()
-        collapseJob = null
-        if (tickJob == null) startTicking()
-        publish()
+        scope.launch(eventDispatcher) {
+            this@UsageTrackerController.snapshot = snapshot
+            expanded = false
+            collapseJob?.cancel()
+            collapseJob = null
+            if (tickJob == null) startTicking()
+            publish()
+        }
     }
 
     fun onSessionClosed() = hide()
@@ -59,21 +68,24 @@ class UsageTrackerController(
     fun onLimitCrossed() = hide()
 
     fun onPillTapped() {
-        expanded = !expanded
-        collapseJob?.cancel()
-        collapseJob = null
-        if (expanded) {
-            collapseJob = scope.launch {
-                delay(expandTimeoutMillis)
-                expanded = false
-                collapseJob = null
-                publish()
+        scope.launch(eventDispatcher) {
+            if (snapshot == null) return@launch
+            expanded = !expanded
+            collapseJob?.cancel()
+            collapseJob = null
+            if (expanded) {
+                collapseJob = scope.launch(eventDispatcher) {
+                    delay(expandTimeoutMillis)
+                    expanded = false
+                    collapseJob = null
+                    publish()
+                }
             }
+            publish()
         }
-        publish()
     }
 
-    private fun hide() {
+    private fun hide() = scope.launch(eventDispatcher) {
         snapshot = null
         expanded = false
         tickJob?.cancel()
@@ -84,7 +96,7 @@ class UsageTrackerController(
     }
 
     private fun startTicking() {
-        tickJob = scope.launch {
+        tickJob = scope.launch(eventDispatcher) {
             while (isActive) {
                 delay(tickIntervalMillis)
                 if (snapshot == null) return@launch

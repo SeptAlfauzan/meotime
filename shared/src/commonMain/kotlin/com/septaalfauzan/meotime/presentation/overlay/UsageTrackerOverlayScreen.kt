@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -197,9 +198,9 @@ private fun TrackerRing(
     Box(
         modifier = modifier
             .size(if (expanded) 52.dp else 28.dp)
-            // The clickable pill merges descendant semantics; opting the ring into merging keeps
-            // it an independently focusable node so both announcements reach TalkBack.
-            .semantics(mergeDescendants = true) { contentDescription = label },
+            // Replacing — not merging into — the clickable parent's semantics keeps the ring's
+            // own "percent of daily limit used" announcement separate from the pill's label.
+            .clearAndSetSemantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {

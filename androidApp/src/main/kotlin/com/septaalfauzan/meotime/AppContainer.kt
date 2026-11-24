@@ -104,8 +104,10 @@ class AppContainer(private val context: Context) {
         // this in scope.launch would only add a queue between the decision and the screen. The
         // lambdas read the lateinit properties when they run, which is after init.
         onOverlayDecision = { decision ->
-            // Stop the pill before the blocker takes the screen: show() hides it too, but the
-            // controller must also drop its ticker and pending collapse so no frame can follow.
+            // Stop the pill before the blocker takes the screen: onLimitCrossed() posts hide to
+            // the main Handler before show() posts its own hide and blocker, so FIFO keeps the
+            // controller's null frame ahead of the blocker. show() hides it too, but the controller
+            // must also drop its ticker and pending collapse so no frame can follow.
             usageTrackerController.onLimitCrossed()
             overlayManager.show(decision)
             // The core already emits the crossing, so the notification hears about it here rather
@@ -125,6 +127,10 @@ class AppContainer(private val context: Context) {
             renderer = TrackerRenderer { overlayManager.renderTracker(it) },
             clock = clock,
             scope = scope,
+            // One dispatcher for every controller state change and render post. From a core IO
+            // callback the hide is queued on main ahead of show()'s hide+blocker; from onDestroy,
+            // already on main, it runs inline before dismiss().
+            eventDispatcher = Dispatchers.Main.immediate,
         )
         overlayManager.onTrackerTap = { usageTrackerController.onPillTapped() }
         notifier = AndroidNotifier(context)
