@@ -195,7 +195,13 @@ private fun SetLimitEditor(
         ) {
             LIMIT_PRESETS.forEach { preset ->
                 MeotimeOutlinedButton(
-                    onClick = { onSetMinutes(preset) },
+                    onClick = {
+                        val hour = preset / 60
+                        val minute = preset % 60
+                        hours = hour
+                        minutes = minute
+                        onSetMinutes(preset)
+                              },
                     enabled = editing,
                     contentPadding = MeotimeTokens.controls.textButtonContentPadding,
                 ) {
