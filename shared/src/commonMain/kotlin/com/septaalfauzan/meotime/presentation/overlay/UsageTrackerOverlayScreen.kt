@@ -11,11 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,21 +30,22 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.septaalfauzan.meotime.monitoring.TrackerFrame
 import com.septaalfauzan.meotime.presentation.format.formatOverlayDuration
 import com.septaalfauzan.meotime.presentation.format.formatShortDuration
+import com.septaalfauzan.meotime.presentation.theme.MonochromeTheme
 
 /**
  * Reference-exact screen-time tracker pill. A dedicated overlay palette and fixed dp sizes — not
  * app theme roles — because this composable copies the supplied overlay board and is rendered in
  * a small transparent window over another app.
  *
- * The root is the whole hit area: 250×48dp compact (40dp visual pill plus 8dp transparent padding
- * below it) or 358×110dp expanded. Only the black pill is painted; the extra compact padding stays
- * transparent so touches around it reach the app underneath.
+ * The root is the whole hit area and the painted pill: 250×40dp compact or 358×110dp expanded.
+ * Anything outside those bounds stays transparent, so touches there reach the app underneath.
  */
 @Composable
 fun UsageTrackerOverlayScreen(
@@ -55,16 +54,18 @@ fun UsageTrackerOverlayScreen(
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val pillDescription = "${frame.appName}, ${frame.usageSeconds} seconds of ${frame.limitSeconds}, " +
-        "${frame.percent}% of daily limit used. " +
-        (if (frame.expanded) "Tap to collapse." else "Tap to expand.")
+    val pillDescription =
+        "${frame.appName}, ${frame.usageSeconds} seconds of ${frame.limitSeconds}, " +
+                "${frame.percent}% of daily limit used. " +
+                (if (frame.expanded) "Tap to collapse." else "Tap to expand.")
 
     Box(
         modifier = modifier
             .size(
                 width = if (frame.expanded) 358.dp else 250.dp,
-                height = if (frame.expanded) 110.dp else 48.dp,
+                height = if (frame.expanded) 110.dp else 40.dp,
             )
+            .clip(RoundedCornerShape(if (frame.expanded) 36.dp else 20.dp))
             .clickable(onClick = onTap)
             .semantics { contentDescription = pillDescription },
         contentAlignment = Alignment.TopCenter,
@@ -80,15 +81,6 @@ fun UsageTrackerOverlayScreen(
         ) {
             if (frame.expanded) ExpandedContent(frame, appIcon) else CompactContent(frame, appIcon)
         }
-
-        // Camera dot: top of the expanded pill, 9dp down in the compact one, centred in both.
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .offset(y = if (frame.expanded) 0.dp else 9.dp)
-                .clip(CircleShape)
-                .background(TrackerOverlayPalette.Camera),
-        )
     }
 }
 
@@ -96,7 +88,7 @@ fun UsageTrackerOverlayScreen(
 private fun ExpandedContent(frame: TrackerFrame, appIcon: ImageBitmap?) {
     val headline = if (frame.nearLimit) {
         "${formatOverlayDuration(frame.usageSeconds)} " +
-            "${formatOverlayDuration(frame.limitSeconds - frame.usageSeconds)} left"
+                "${formatOverlayDuration(frame.limitSeconds - frame.usageSeconds)} left"
     } else {
         "${formatOverlayDuration(frame.usageSeconds)} of ${formatOverlayDuration(frame.limitSeconds)}"
     }
@@ -251,4 +243,81 @@ private object TrackerOverlayPalette {
     val RingTrack = Color.White.copy(alpha = 0.18f)
     val Safe = Color(0xFF30D158)
     val NearLimit = Color(0xFFFF9F0A)
+}
+
+// Previews mirror the real host: MonochromeTheme and no app icon, so the fallback tile is visible.
+private fun previewTrackerFrame(
+    usageSeconds: Long = 2_520L, // 42 min
+    limitSeconds: Long = 3_600L, // 1 hr
+    nearLimit: Boolean = false,
+    expanded: Boolean = false,
+) = TrackerFrame(
+    packageName = "com.instagram.android",
+    appName = "Instagram",
+    usageSeconds = usageSeconds,
+    limitSeconds = limitSeconds,
+    percent = (usageSeconds * 100 / limitSeconds).toInt(),
+    nearLimit = nearLimit,
+    expanded = expanded,
+)
+
+@Composable
+@Preview(
+    name = "Compact · 42 min of 1 hr",
+    group = "Usage tracker",
+    widthDp = 266,
+    heightDp = 56,
+    showBackground = true,
+    backgroundColor = 0xFFF2F2F7L,
+)
+private fun UsageTrackerCompactPreview() {
+    MonochromeTheme {
+        UsageTrackerOverlayScreen(
+            frame = previewTrackerFrame(),
+            appIcon = null,
+            onTap = {},
+        )
+    }
+}
+
+@Composable
+@Preview(
+    name = "Expanded · 42 min of 1 hr",
+    group = "Usage tracker",
+    widthDp = 374,
+    heightDp = 126,
+    showBackground = true,
+    backgroundColor = 0xFFF2F2F7L,
+)
+private fun UsageTrackerExpandedPreview() {
+    MonochromeTheme {
+        UsageTrackerOverlayScreen(
+            frame = previewTrackerFrame(expanded = true),
+            appIcon = null,
+            onTap = {},
+        )
+    }
+}
+
+@Composable
+@Preview(
+    name = "Expanded · near limit",
+    group = "Usage tracker",
+    widthDp = 374,
+    heightDp = 126,
+    showBackground = true,
+    backgroundColor = 0xFFF2F2F7L,
+)
+private fun UsageTrackerNearLimitPreview() {
+    MonochromeTheme {
+        UsageTrackerOverlayScreen(
+            frame = previewTrackerFrame(
+                usageSeconds = 3_300L, // 55 min
+                nearLimit = true,
+                expanded = true,
+            ),
+            appIcon = null,
+            onTap = {},
+        )
+    }
 }

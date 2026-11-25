@@ -183,7 +183,7 @@ class OverlayManager(
             val params = trackerParams
             if (view != null && params != null) {
                 params.width = dpToPx(if (frame.expanded) 358f else 250f)
-                params.height = dpToPx(if (frame.expanded) 110f else 48f)
+                params.height = dpToPx(if (frame.expanded) 110f else 40f)
                 try {
                     windowManager.updateViewLayout(view, params)
                 } catch (e: Exception) {
@@ -248,7 +248,7 @@ class OverlayManager(
 
     private fun trackerLayoutParams(expanded: Boolean) = WindowManager.LayoutParams(
         dpToPx(if (expanded) 358f else 250f),
-        dpToPx(if (expanded) 110f else 48f),
+        dpToPx(if (expanded) 110f else 40f),
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         // Not focusable keeps the app behind in charge of BACK; not touch-modal sends touches
         // outside this small window to that app. Touches inside it still reach the pill.
